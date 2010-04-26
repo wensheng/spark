@@ -1,0 +1,8 @@
+To install Spark, run:
+
+python setup.py install
+
+(you need Python 2.3 or above). 
+
+For more info, see README and http://trac.wensheng.com/wiki/SparkProject
+

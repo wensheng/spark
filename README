@@ -1,0 +1,130 @@
+This project is obsolete.  I just put it here for archiving.
+
+SPARK
+====================================================================
+Spark's Python And Ruby Kit for deleveping web sites.
+====================================================================
+The documents are at http://pytan.com/
+
+Contents
+--------
+
+1 Quick Start
+2 Prerequisites and Optionals
+3 Web Server Setup
+  - Built-in Server
+  - Apache + ModPython
+  - Apache + ModRuby
+  - Lighttpd + Ruby Fastcgi
+  - Lighttpd + Python Fastcgi
+  - Twisted
+4 Other Info
+
+
+--------------------------------------------------------------------
+1. Quick Start
+--------------------------------------------------------------------
+1, Type "python setup" or "ruby setup"
+2, "chmod 777 +R cache"
+3, "python scripts/server.py" or "ruby scripts/server.rb"
+   to start buildin webserver at port 8888.
+   See section 3 - Web Server Setup for other webserver setup.
+
+The setup step does NOT install anything in your site-packages or
+site-ruby or gems directory, everything is setup within current 
+directory.
+
+--------------------------------------------------------------------
+2. Prerequisites and Optionals:
+--------------------------------------------------------------------
+Prerequisites:
+For web server prerequisites, see specific web server in the next
+section.
+
+Optionals:
+1, Mysql binding
+	mysql-python: http://sourceforge.net/projects/mysql-python/
+	MySQL/Ruby:   http://www.tmtm.org/en/mysql/ruby/
+   Try following to make sure it installed correctly:
+	import MySQLdb #python
+	require "mysql" #irb
+
+2. Mochikit
+	http://www.mochikit.com/
+	Note: Mochikit is already installed in public/js directory to
+           support admin_controller.
+
+4. FCKeditor
+	http://www.fckeditor.net/
+	FCKeditor is prefered for blog writting interface
+
+
+--------------------------------------------------------------------
+3. Web Server Setup
+--------------------------------------------------------------------
+
+3.1 Built-in Server
+------------------------------
+to start:
+	$python scripts/server.py
+	or
+	$ruby scripts/server.rb
+The default port is 8888.
+Please note built-in server is slow. It's good for debug, since
+the server fork new cgi process for each request, you don't have to 
+restart the server for changes to take effect.
+
+
+3.2 Apache + ModPython
+------------------------------
+Install ModPython: http://www.modpython.org
+Type:
+	import mod_python
+ to make sure it is installed correctly.
+Copy/paste the content of the file "etc/apache_modpython.conf" to 
+your httpd.conf (or copy the file to your conf.d/ directory). The 
+only thing you need to change is "ServerName" directive.
+Restart apache.
+
+
+3.3 Apache + ModRuby
+------------------------------
+DO NOT use. Currently broken, will be fixed.
+Install ModRuby: http://www.modruby.net/
+
+
+3.4 Lighttpd + Python Fastcgi
+------------------------------
+Install Flup: 
+	http://www.saddi.com/software/flup/
+Type 
+	import flup
+  to make sure it's installed correctly.
+Optionally make modification to etc/lighttpd-python.conf.
+Start lighttpd:
+	lighttpd -f etc/lighttpd-python.conf
+
+
+3.5 Lighttpd + Ruby Fastcgi
+------------------------------
+Install ruby-fcgi:
+	http://sugi.nemui.org/prod/ruby-fcgi/
+Type 
+	require "fcgi"
+  to make sure it's installed correctly.
+Optionally make modification to etc/lighttpd-ruby.conf.
+Start lighttpd:
+	lighttpd -f etc/lighttpd-ruby.conf
+
+
+3.6 Twisted
+------------------------------
+to start: 
+	$./scripts/twistedctl start
+to stop: 
+	$./scripts/twistedctl stop
+
+--------------------------------------------------------------------
+4. Other Info
+--------------------------------------------------------------------
+
