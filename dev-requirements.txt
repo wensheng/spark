@@ -1,6 +1,0 @@
-pipdeptree>=2.25.0
-pytest>=8.3.5
-pytest-asyncio>=0.25.3
-python-dotenv>=1.0.1
-ruff>=0.9.10
-pylint>=3.3.5
