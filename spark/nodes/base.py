@@ -168,7 +168,7 @@ class BaseNode(ABC):
             return context.outputs
         return NodeMessage(content=context.outputs)
 
-    async def do(self, inputs: NodeMessage | dict[str, Any] | None = None) -> NodeMessage:
+    async def do(self, inputs: NodeMessage | dict[str, Any] | list[dict[str, Any]] | None = None) -> NodeMessage:
         """Run the node's processing logic.
 
         The default implementation simply calls the _process method, which is a wrapper of the process method.

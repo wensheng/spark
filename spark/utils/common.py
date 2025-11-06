@@ -4,6 +4,29 @@ Common Spark Utils
 
 import asyncio
 import inspect
+import os
+from typing import Any
+
+from pydantic import BaseModel
+
+
+_OPENAI_CLIENT = {}
+
+
+def get_openai_client(provider: str = "openai", base_url: str | None = None):
+    """Get or create an OpenAI client for the specified provider."""
+    try:
+        import openai
+    except ImportError:
+        raise ImportError("openai package is required for get_openai_client")
+    if provider in _OPENAI_CLIENT:
+        return _OPENAI_CLIENT[provider]
+    _OPENAI_CLIENT[provider] = openai.OpenAI(
+        api_key=os.getenv("OPENAI_API_KEY", 'null'),
+        base_url=base_url,
+    )
+    return _OPENAI_CLIENT[provider]
+
 
 
 class SparkUtilError(Exception):
@@ -15,3 +38,62 @@ def arun(fno):
     if not inspect.iscoroutine(fno):
         raise SparkUtilError(f"{fno} must be a coroutine (use async def and call without await)")
     return asyncio.run(fno)
+
+
+def ask_llm(
+    messages: str | list[dict[str, str]],
+    model='gpt-5-nano',
+    instructions: str | None = None,
+    tools: list[dict[str, Any]] | None = None,
+    response_format: Any = None,
+    provider: str = "openai",
+    base_url: str | None = None,
+) -> str:
+    """
+    Use new OpenAI responses.create API for openai.
+    Use chat.completions.create for other models.
+    """
+    if response_format is not None and not issubclass(response_format, BaseModel):
+        raise ValueError("response_format must be a Pydantic BaseModel or None")
+    client = get_openai_client(provider=provider, base_url=base_url)
+
+    if provider == "openai":
+        if response_format is not None:
+            response = client.responses.parse(
+                model=model,
+                input=messages,
+                instructions=instructions,
+                tools=tools,
+                text_format=response_format,
+            )
+            return response.output_parsed
+
+        response = client.responses.create(
+            model=model,
+            input=messages,
+            instructions=instructions,
+            tools=tools,
+        )
+        return response.output_text
+
+    if isinstance(messages, str):
+        llm_messages = [{"role": "user", "content": messages}]
+    else:
+        llm_messages = list(messages)
+    if instructions:
+        llm_messages.insert(0, {"role": "system", "content": instructions})
+    if response_format is not None:
+        response = client.chat.completions.parse(
+            model=model,
+            messages=llm_messages,
+            response_format=response_format,
+            tools=tools,
+        )
+        return response.choices[0].message.output_parsed
+
+    response = client.chat.completions.create(
+        model=model,
+        messages=llm_messages,
+        tools=tools,
+    )
+    return response.choices[0].message.content
