@@ -6,8 +6,6 @@ from abc import abstractmethod
 import sys
 import asyncio
 
-if sys.version_info >= (3, 14):
-    pass
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 import copy
 from collections import deque
@@ -27,7 +25,8 @@ from spark.nodes.base import (
 )
 from spark.nodes.config import NodeConfig
 from spark.nodes.capabilities import CapabilitySuite
-from spark.nodes.exceptions import NodeExecutionError, NodeTimeoutError
+from spark.nodes.policies import RetryPolicy
+from spark.nodes.exceptions import ContextValidationError, NodeExecutionError, NodeTimeoutError
 from spark.nodes.types import EventSink, NodeMessage, NullEventSink
 from spark.nodes.channels import ChannelMessage
 
@@ -60,13 +59,13 @@ class Node(BaseNode):
         # keep_in_state hook should run before other pre_process_hooks
         self.pre_process_hooks.insert(0, self.process_keep_in_state)
 
-        self._capabilities = CapabilitySuite.from_config(config if config else self._get_default_config())
+        self._capabilities = CapabilitySuite.from_config(self.config)
         # make sure the keep in state hook is the first one
 
         self._event_sink: EventSink = NullEventSink()
         self._active_run_id: str | None = None
         self._redact_keys: set[str] = set()
-        self._retry_policy = None  # Will be set by capabilities if needed
+        self._retry_policy: RetryPolicy | None = self._capabilities.retry.policy if self._capabilities.retry else None
         self.parents: list['Node'] = []
         self._stop_flag: bool = False
         self._last_process_attempts = 0
@@ -306,6 +305,162 @@ class Node(BaseNode):
         """Await a stage coroutine - placeholder for actual implementation."""
         # TODO: Implement proper stage awaiting with timeout/monitoring
         return coro
+
+    def _refresh_observability_state(self) -> None:
+        """Sync per-run observability controls from dynamic attributes."""
+        sink = getattr(self, 'event_sink', None)
+        self._event_sink = sink if sink is not None else NullEventSink()
+        redact_keys = getattr(self, 'redact_keys', None)
+        if redact_keys:
+            self._redact_keys = set(redact_keys)
+        else:
+            self._redact_keys = set()
+
+    def _validate_context_contract(self, context: ExecutionContext) -> None:
+        """Run configured validators against the incoming payload."""
+        validators = getattr(self.config, 'validators', ())
+        if not validators:
+            return
+        payload = context.inputs.content
+        if not isinstance(payload, Mapping):
+            raise ContextValidationError(self, 'inputs must be a mapping for configured validators')
+        for validator in validators:
+            message = validator(payload)
+            if message:
+                raise ContextValidationError(self, message)
+
+    def _derive_run_id(self, context: ExecutionContext) -> str:
+        """Resolve the active run identifier for observability streams."""
+        metadata = getattr(context.inputs, 'metadata', {}) or {}
+        run_id = metadata.get('run_id')
+        if isinstance(run_id, str) and run_id:
+            return run_id
+        return uuid4().hex
+
+    def _clone_mapping(self, value: Mapping[str, Any]) -> Mapping[str, Any]:
+        """Best-effort deep clone for cached/idempotent payloads."""
+        try:
+            return copy.deepcopy(value)
+        except Exception:
+            return dict(value)
+
+    def _result_mapping_for_capabilities(self, result: Any) -> Mapping[str, Any]:
+        """Extract a mapping payload used by capabilities like idempotency."""
+        if isinstance(result, NodeMessage):
+            content = result.content
+            if isinstance(content, Mapping):
+                return dict(content)
+            return {}
+        if isinstance(result, Mapping):
+            return dict(result)
+        return {}
+
+    def _resolve_idempotency_flag(self, context: ExecutionContext, result: Any = None) -> Any | None:
+        """Allow nodes to surface custom idempotency flags."""
+        if isinstance(result, NodeMessage):
+            extras = getattr(result, 'extras', None)
+            if isinstance(extras, dict) and 'idempotency_flag' in extras:
+                return extras['idempotency_flag']
+        state_flag = None
+        try:
+            state_flag = context.state.get('idempotency_flag')
+        except AttributeError:
+            state_flag = None
+        return state_flag
+
+    async def _process(self, context: ExecutionContext) -> Any:  # type: ignore[override]
+        """Execute the node with capability orchestration (retry, timeout, etc.)."""
+        self._refresh_observability_state()
+        self._validate_context_contract(context)
+
+        run_id = self._derive_run_id(context)
+        previous_run_id = self._active_run_id
+        self._active_run_id = run_id
+        capabilities = self._capabilities
+        base_process = super()._process
+        attempt_index = 0
+        metadata = context.metadata
+
+        async def invoke(ctx: ExecutionContext) -> Any:
+            return await self._await_stage(base_process(ctx), 'process')
+
+        try:
+            while True:
+                self._last_process_attempts = attempt_index + 1
+                metadata.mark_started(attempt_index + 1)
+                attempt_state = await capabilities.before_attempt(context, attempt_index)
+                replay = attempt_state.idempotency
+                reused = bool(replay and replay.reused and replay.output is not None)
+                if reused and replay and replay.snapshot:
+                    try:
+                        context.state.update(replay.snapshot)
+                    except Exception:
+                        pass
+                try:
+                    if reused and replay and replay.output is not None:
+                        result = self._clone_mapping(replay.output)
+                        flag = replay.flag
+                    else:
+                        result = await capabilities.execute(self, invoke, context)
+                        flag = self._resolve_idempotency_flag(context, result)
+
+                    metadata.mark_finished()
+                    await capabilities.after_success(
+                        context,
+                        self._result_mapping_for_capabilities(result),
+                        flag,
+                        attempt_state,
+                        reused=reused,
+                    )
+                    await self._emit_stage_done(
+                        run_id,
+                        'process',
+                        metadata.duration or 0.0,
+                        result=result,
+                        metadata={
+                            'attempt': metadata.attempt,
+                            'attempts': attempt_index + 1,
+                            'reused': reused,
+                        },
+                    )
+                    return result
+                except asyncio.CancelledError:
+                    metadata.mark_finished()
+                    await capabilities.after_failure(attempt_state)
+                    raise
+                except Exception as exc:
+                    metadata.mark_finished()
+                    await capabilities.after_failure(attempt_state)
+                    should_retry = capabilities.should_retry(exc, attempt_index)
+                    decision = 'retry' if should_retry else 'abort'
+                    await self._emit_node_error(
+                        run_id,
+                        'process',
+                        exc,
+                        decision,
+                        duration=metadata.duration,
+                        attempts=attempt_index + 1,
+                    )
+                    if not should_retry:
+                        retry_cap = self._capabilities.retry
+                        if (
+                            retry_cap is not None
+                            and retry_cap.policy.is_retryable_exception(exc)
+                            and not retry_cap.policy.allows_retry(attempt_index)
+                        ):
+                            raise NodeExecutionError(
+                                kind='retry_exhausted',
+                                node=self,
+                                stage='process',
+                                original=exc,
+                            ) from exc
+                        raise
+                    delay = capabilities.retry_delay(attempt_index)
+                    attempt_index += 1
+                    if delay > 0:
+                        await asyncio.sleep(delay)
+        finally:
+            self._active_run_id = previous_run_id
 
     async def _run_process_with_retry(self, data: Any = None) -> Any:
 

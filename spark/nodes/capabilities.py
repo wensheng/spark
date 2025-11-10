@@ -363,7 +363,3 @@ class CapabilitySuite:
         if self.timeout is None:
             return await coro
         return await self.timeout.run(node, coro)
-
-
-_GLOBAL_RATE_REGISTRY = RateLimiterRegistry()
-_GLOBAL_BREAKER_REGISTRY = CircuitBreakerRegistry()
