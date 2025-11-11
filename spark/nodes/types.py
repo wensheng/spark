@@ -7,10 +7,13 @@ import time
 from abc import ABC
 from collections import deque
 from dataclasses import dataclass, field, replace
-from typing import Any, Literal, TypeVar, Generic
+from typing import Any, Literal, Optional, TypeVar, Generic, TYPE_CHECKING
 
 from typing_extensions import TypedDict  # PEP 728, python 3.15 available > 4.10.0
 from pydantic import BaseModel, ConfigDict, Field
+
+if TYPE_CHECKING:
+    from spark.graphs.graph_state import GraphState
 
 
 class NodeMessage(BaseModel):
@@ -116,12 +119,14 @@ class ExecutionContext(Generic[TNodeState]):
     The state can be changed by pre_process_hooks and post_process_hooks.
     The metadata is used to capture the execution metadata.
     The inputs are the inputs to the node.
+    The graph_state is the global state shared across all nodes in the graph.
     """
 
     inputs: NodeMessage = field(default_factory=NodeMessage)
     state: TNodeState = field(default_factory=default_node_state)  # type: ignore[assignment]
     metadata: ExecutionMetadata = field(default_factory=ExecutionMetadata)
     outputs: Any | None = None
+    graph_state: Optional['GraphState'] = None
 
     def snapshot(self) -> dict[str, Any]:
         """Return a deep copy of the current state for diagnostics."""
@@ -136,6 +141,7 @@ class ExecutionContext(Generic[TNodeState]):
             state=_safe_copy(self.state),
             metadata=replace(self.metadata),
             outputs=_safe_copy(self.outputs),
+            graph_state=self.graph_state,
         )
 
 

@@ -13,6 +13,7 @@ from spark.graphs.tasks import Task, TaskType
 from spark.nodes.types import ExecutionContext, NodeMessage
 from spark.nodes.channels import ChannelMessage, ForwardingChannel, BaseChannel
 from spark.graphs.event_bus import GraphEventBus
+from spark.graphs.graph_state import GraphState
 
 
 class Graph(BaseGraph):
@@ -31,6 +32,12 @@ class Graph(BaseGraph):
         self.event_bus: GraphEventBus = kwargs.get('event_bus', GraphEventBus())
         self._channel_factory: Callable[[Edge, BaseChannel], BaseChannel] | None = kwargs.get('channel_factory')
         self._channels_configured: bool = False
+
+        # Initialize graph state
+        initial_state = kwargs.get('initial_state', None)
+        self.state = GraphState(initial_state)
+        self._state_enabled: bool = kwargs.get('enable_graph_state', True)
+
         self._attach_event_bus_to_nodes()
 
     @final
@@ -83,6 +90,12 @@ class Graph(BaseGraph):
             self._channels_configured = False
 
         self._prepare_runtime()
+
+        # Configure state mode based on task type
+        if task.type == TaskType.LONG_RUNNING:
+            self.state.enable_concurrent_mode()
+        else:
+            self.state.disable_concurrent_mode()
 
         jobs: list[Coroutine[Any, Any, Optional[NodeMessage]]]
         last_output: NodeMessage | None = None
@@ -264,8 +277,9 @@ class Graph(BaseGraph):
         self._attach_event_bus_to_nodes()
 
     def _prepare_runtime(self) -> None:
-        """Ensure runtime services (event bus, channels) are configured."""
+        """Ensure runtime services (event bus, channels, state) are configured."""
         self._attach_event_bus_to_nodes()
+        self._attach_graph_state_to_nodes()
         if not self._channels_configured:
             self._configure_edge_channels()
 
@@ -274,6 +288,13 @@ class Graph(BaseGraph):
             attach = getattr(node, 'attach_event_bus', None)
             if callable(attach):
                 attach(self.event_bus)
+
+    def _attach_graph_state_to_nodes(self) -> None:
+        """Inject graph state reference into all nodes."""
+        if not self._state_enabled:
+            return
+        for node in self.nodes:
+            setattr(node, '_graph_state', self.state)
 
     def _configure_edge_channels(self) -> None:
         for edge in self.edges:
@@ -297,6 +318,53 @@ class Graph(BaseGraph):
                     name=f'edge:{edge.id}',
                 )
         self._channels_configured = True
+
+    # Graph state helper methods
+
+    async def get_state(self, key: str, default: Any = None) -> Any:
+        """Get value from graph state.
+
+        Args:
+            key: The key to retrieve.
+            default: Default value if key doesn't exist.
+
+        Returns:
+            The value associated with the key, or default if not found.
+        """
+        return await self.state.get(key, default)
+
+    async def set_state(self, key: str, value: Any) -> None:
+        """Set value in graph state.
+
+        Args:
+            key: The key to set.
+            value: The value to associate with the key.
+        """
+        await self.state.set(key, value)
+
+    async def update_state(self, updates: dict[str, Any]) -> None:
+        """Batch update graph state.
+
+        Args:
+            updates: Dictionary of key-value pairs to update.
+        """
+        await self.state.update(updates)
+
+    def reset_state(self, new_state: dict[str, Any] | None = None) -> None:
+        """Reset graph state (useful between runs).
+
+        Args:
+            new_state: Optional new state dictionary. If None, state is cleared.
+        """
+        self.state = GraphState(new_state)
+
+    def get_state_snapshot(self) -> dict[str, Any]:
+        """Get a snapshot of current state.
+
+        Returns:
+            A shallow copy of the state dictionary.
+        """
+        return self.state.get_snapshot()
 
 
 class SubgraphNode(Node):

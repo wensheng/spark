@@ -118,7 +118,14 @@ class BaseNode(ABC):
         """Prepare the execution context from inputs."""
         if not isinstance(inputs, NodeMessage):
             raise TypeError("inputs must be a Message")
-        return ExecutionContext(inputs=inputs, state=self._state)
+        context = ExecutionContext(inputs=inputs, state=self._state)
+
+        # Attach graph state if available
+        graph_state = getattr(self, '_graph_state', None)
+        if graph_state is not None:
+            context.graph_state = graph_state
+
+        return context
 
     def get_next_nodes(self) -> list['BaseNode']:
         """Get the next nodes based on conditions and priorities."""
