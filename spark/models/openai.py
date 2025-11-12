@@ -56,10 +56,14 @@ class OpenAIModel(Model):
             params: Model parameters (e.g., max_tokens).
                 For a complete list of supported parameters, see
                 https://platform.openai.com/docs/api-reference/chat/create.
+            enable_cache: Enable response caching (default: False).
+            cache_ttl_seconds: Time-to-live for cached responses in seconds (default: 86400 = 24 hours).
         """
 
         model_id: Required[str]
         params: Optional[dict[str, Any]]
+        enable_cache: bool
+        cache_ttl_seconds: int
 
     def __init__(self, client_args: Optional[dict[str, Any]] = None, **model_config: Unpack[OpenAIConfig]) -> None:
         """Initialize provider instance.
@@ -69,11 +73,21 @@ class OpenAIModel(Model):
                 For a complete list of supported arguments, see https://pypi.org/project/openai/.
             **model_config: Configuration options for the OpenAI model.
         """
+        super().__init__()
         validate_config_keys(model_config, self.OpenAIConfig)
         self.config = dict(model_config)
         self.client_args = client_args or {}
 
+        # Initialize cache if enabled
+        self._cache_enabled = self.config.get("enable_cache", False)
+        self._cache_ttl_seconds = self.config.get("cache_ttl_seconds", 86400)
+        self._init_cache()
+
         logger.debug("config=<%s> | initializing", self.config)
+
+    def _get_provider_name(self) -> str:
+        """Get provider name for cache key generation."""
+        return "openai"
 
     @override
     def update_config(self, **model_config: Unpack[OpenAIConfig]) -> None:  # type: ignore[override]
@@ -339,11 +353,13 @@ class OpenAIModel(Model):
         tool_choice: ToolChoice | None = None,
         **kwargs: Any,
     ) -> ChatCompletionAssistantMessage:
-        """Get text output from the model.
+        """Get text output from the model with caching support.
 
         Args:
-            prompt: The prompt messages to use for the agent.
+            messages: The prompt messages to use for the agent.
             system_prompt: System prompt to provide context to the model.
+            tool_specs: List of tool specifications to make available to the model.
+            tool_choice: Selection strategy for tool invocation.
             **kwargs: Additional keyword arguments for future extensibility.
 
         Returns:
@@ -353,6 +369,20 @@ class OpenAIModel(Model):
             ContextWindowOverflowException: If the input exceeds the model's context window.
             ModelThrottledException: If the request is throttled by OpenAI (rate limits).
         """
+        # Check cache first
+        cached_response = self._get_from_cache(
+            messages=messages,
+            system_prompt=system_prompt,
+            tool_specs=tool_specs,
+            tool_choice=tool_choice,
+            **kwargs
+        )
+
+        if cached_response is not None:
+            logger.info("Returning cached response for OpenAI model")
+            return cached_response
+
+        # Cache miss - call API
         request = self.format_request(
             messages, tool_specs=tool_specs, system_prompt=system_prompt, tool_choice=tool_choice, stream=False
         )
@@ -384,7 +414,19 @@ class OpenAIModel(Model):
                 logger.warning("OpenAI threw rate limit error")
                 raise ModelThrottledException(str(e)) from e
 
-        return self._format_response(response)
+        formatted_response = self._format_response(response)
+
+        # Save to cache
+        self._save_to_cache(
+            messages=messages,
+            response=formatted_response,
+            system_prompt=system_prompt,
+            tool_specs=tool_specs,
+            tool_choice=tool_choice,
+            **kwargs
+        )
+
+        return formatted_response
 
     @classmethod
     def _add_additional_properties_false(cls, schema: dict[str, Any]) -> None:
@@ -430,7 +472,24 @@ class OpenAIModel(Model):
         tool_choice: ToolChoice | None = None,
         **kwargs: Any,
     ) -> ChatCompletionAssistantMessage:
-        """Get JSON output from the model."""
+        """Get JSON output from the model with caching support."""
+        # Include output_model schema in cache key
+        kwargs_with_model = {**kwargs, "output_model_schema": output_model.model_json_schema()}
+
+        # Check cache first
+        cached_response = self._get_from_cache(
+            messages=messages,
+            system_prompt=system_prompt,
+            tool_specs=tool_specs,
+            tool_choice=tool_choice,
+            **kwargs_with_model
+        )
+
+        if cached_response is not None:
+            logger.info("Returning cached response for OpenAI model (get_json)")
+            return cached_response
+
+        # Cache miss - call API
         # Build a non-streaming request similar to get_text
         request = self.format_request(messages, tool_specs=tool_specs, system_prompt=system_prompt, stream=False)
 
@@ -515,5 +574,15 @@ class OpenAIModel(Model):
 
         if tool_calls:
             result["tool_calls"] = tool_calls
+
+        # Save to cache
+        self._save_to_cache(
+            messages=messages,
+            response=result,
+            system_prompt=system_prompt,
+            tool_specs=tool_specs,
+            tool_choice=tool_choice,
+            **kwargs_with_model
+        )
 
         return result

@@ -92,6 +92,8 @@ class BedrockModel(Model):
             streaming: Flag to enable/disable streaming. Defaults to True.
             temperature: Controls randomness in generation (higher = more random)
             top_p: Controls diversity via nucleus sampling (alternative to temperature)
+            enable_cache: Enable response caching (default: False).
+            cache_ttl_seconds: Time-to-live for cached responses in seconds (default: 86400 = 24 hours).
         """
 
         additional_args: Optional[dict[str, Any]]
@@ -110,6 +112,8 @@ class BedrockModel(Model):
         streaming: Optional[bool]
         temperature: Optional[float]
         top_p: Optional[float]
+        enable_cache: bool
+        cache_ttl_seconds: int
 
     def __init__(
         self,
@@ -130,6 +134,8 @@ class BedrockModel(Model):
             endpoint_url: Custom endpoint URL for VPC endpoints (PrivateLink)
             **model_config: Configuration options for the Bedrock model.
         """
+        super().__init__()
+
         if region_name and boto_session:
             raise ValueError("Cannot specify both `region_name` and `boto_session`.")
 
@@ -140,6 +146,11 @@ class BedrockModel(Model):
             include_tool_result_status="auto",
         )
         self.update_config(**model_config)
+
+        # Initialize cache if enabled
+        self._cache_enabled = self.config.get("enable_cache", False)
+        self._cache_ttl_seconds = self.config.get("cache_ttl_seconds", 86400)
+        self._init_cache()
 
         logger.debug("config=<%s> | initializing", self.config)
 
@@ -182,6 +193,10 @@ class BedrockModel(Model):
             The Bedrock model configuration.
         """
         return self.config
+
+    def _get_provider_name(self) -> str:
+        """Get provider name for cache key generation."""
+        return "bedrock"
 
     def _convert_pydantic_to_content_block(self, model: Type[BaseModel]) -> ContentBlock:
         """Convert a Pydantic model to a Bedrock message content block.
@@ -664,16 +679,32 @@ class BedrockModel(Model):
         tool_choice: ToolChoice | None = None,
         **kwargs: Any,
     ) -> ChatCompletionAssistantMessage:
-        """Get text output from the model.
+        """Get text output from the model with caching support.
 
         Args:
             messages: The prompt messages to use for the agent.
             system_prompt: System prompt to provide context to the model.
+            tool_specs: List of tool specifications to make available to the model.
+            tool_choice: Selection strategy for tool invocation.
             **kwargs: Additional keyword arguments for future extensibility.
 
-        Yields:
-            Model events with the last being the structured output.
+        Returns:
+            The text output from the model.
         """
+        # Check cache first
+        cached_response = self._get_from_cache(
+            messages=messages,
+            system_prompt=system_prompt,
+            tool_specs=tool_specs,
+            tool_choice=tool_choice,
+            **kwargs
+        )
+
+        if cached_response is not None:
+            logger.info("Returning cached response for Bedrock model")
+            return cached_response
+
+        # Cache miss - call API
         specs = tool_specs or []
         tool_choice = kwargs.get('tool_choice')
         request = self.format_request(
@@ -683,7 +714,19 @@ class BedrockModel(Model):
             tool_choice=tool_choice,
         )
         response = self.client.converse(**request)
-        return self._format_response(response)
+        formatted_response = self._format_response(response)
+
+        # Save to cache
+        self._save_to_cache(
+            messages=messages,
+            response=formatted_response,
+            system_prompt=system_prompt,
+            tool_specs=tool_specs,
+            tool_choice=tool_choice,
+            **kwargs
+        )
+
+        return formatted_response
 
     @override
     async def get_json(
@@ -695,20 +738,50 @@ class BedrockModel(Model):
         tool_choice: ToolChoice | None = None,
         **kwargs: Any,
     ) -> ChatCompletionAssistantMessage:
-        """Get JSON output from the model.
+        """Get JSON output from the model with caching support.
 
         Args:
             output_model: The output model to use for the agent.
-            prompt: The prompt messages to use for the agent.
+            messages: The prompt messages to use for the agent.
             system_prompt: System prompt to provide context to the model.
+            tool_specs: List of tool specifications to make available to the model.
+            tool_choice: Selection strategy for tool invocation.
             **kwargs: Additional keyword arguments for future extensibility.
 
-        Yields:
-            Model events with the last being the structured output.
+        Returns:
+            The JSON output from the model.
         """
-        # tool_spec = convert_pydantic_to_tool_spec(output_model)
+        # Include output_model schema in cache key
+        kwargs_with_model = {**kwargs, "output_model_schema": output_model.model_json_schema()}
+
+        # Check cache first
+        cached_response = self._get_from_cache(
+            messages=messages,
+            system_prompt=system_prompt,
+            tool_specs=tool_specs,
+            tool_choice=tool_choice,
+            **kwargs_with_model
+        )
+
+        if cached_response is not None:
+            logger.info("Returning cached response for Bedrock model (get_json)")
+            return cached_response
+
+        # Cache miss - call API
         specs = tool_specs or []
         tool_choice = kwargs.get('tool_choice')
         request = self.format_request(messages, specs, system_prompt, tool_choice, output_model)
         response = self.client.converse(**request)
-        return self._format_response(response, output_model)
+        formatted_response = self._format_response(response, output_model)
+
+        # Save to cache
+        self._save_to_cache(
+            messages=messages,
+            response=formatted_response,
+            system_prompt=system_prompt,
+            tool_specs=tool_specs,
+            tool_choice=tool_choice,
+            **kwargs_with_model
+        )
+
+        return formatted_response

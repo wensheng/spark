@@ -38,7 +38,7 @@ async def main(question: str):
     registry.process_tools([web_search])
     specs = registry.get_all_tool_specs()
     # model = OpenAIModel(model_id='gpt-5-nano')
-    model = BedrockModel()
+    model = BedrockModel(enable_cache=True)
     messages: Messages = [{"role": "user", "content": [{"text": question}]}]
     for turn in range(MAX_TOOL_TURNS):
         resp = await model.get_text(

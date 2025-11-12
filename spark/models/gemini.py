@@ -45,10 +45,14 @@ class GeminiModel(Model):
             params: Additional model parameters (e.g., temperature).
                 For a complete list of supported parameters, see
                 https://ai.google.dev/api/generate-content#generationconfig.
+            enable_cache: Enable response caching (default: False).
+            cache_ttl_seconds: Time-to-live for cached responses in seconds (default: 86400 = 24 hours).
         """
 
         model_id: Required[str]
         params: dict[str, Any]
+        enable_cache: bool
+        cache_ttl_seconds: int
 
     def __init__(
         self,
@@ -63,8 +67,14 @@ class GeminiModel(Model):
                 For a complete list of supported arguments, see https://googleapis.github.io/python-genai/.
             **model_config: Configuration options for the Gemini model.
         """
+        super().__init__()
         validate_config_keys(model_config, GeminiModel.GeminiConfig)
         self.config = GeminiModel.GeminiConfig(**model_config)
+
+        # Initialize cache if enabled
+        self._cache_enabled = self.config.get("enable_cache", False)
+        self._cache_ttl_seconds = self.config.get("cache_ttl_seconds", 86400)
+        self._init_cache()
 
         logger.debug("config=<%s> | initializing", self.config)
 
@@ -87,6 +97,10 @@ class GeminiModel(Model):
             The Gemini model configuration.
         """
         return self.config
+
+    def _get_provider_name(self) -> str:
+        """Get provider name for cache key generation."""
+        return "gemini"
 
     def _format_request_content_part(self, content: ContentBlock) -> genai.types.Part:
         """Format content block into a Gemini part instance.
@@ -340,7 +354,7 @@ class GeminiModel(Model):
         tool_choice: ToolChoice | None = None,
         **kwargs: Any,
     ) -> ChatCompletionAssistantMessage:
-        """Get text output from the model using Gemini's default text generation.
+        """Get text output from the model using Gemini's default text generation with caching support.
 
         Args:
             messages: The prompt messages to use for the agent.
@@ -349,16 +363,42 @@ class GeminiModel(Model):
             tool_choice: Selection strategy for tool invocation.
             **kwargs: Additional keyword arguments for future extensibility.
 
-        Yields:
-            Model events with the last being the structured output.
+        Returns:
+            The text output from the model.
         """
+        # Check cache first
+        cached_response = self._get_from_cache(
+            messages=messages,
+            system_prompt=system_prompt,
+            tool_specs=tool_specs,
+            tool_choice=tool_choice,
+            **kwargs
+        )
+
+        if cached_response is not None:
+            logger.info("Returning cached response for Gemini model")
+            return cached_response
+
+        # Cache miss - call API
         params = {
             **(self.config.get("params") or {}),
         }
         request = self._format_request(messages, tool_specs, system_prompt, params, tool_choice)
         client = genai.Client(**self.client_args)
         response = client.models.generate_content(**request)
-        return self._format_response(response)
+        formatted_response = self._format_response(response)
+
+        # Save to cache
+        self._save_to_cache(
+            messages=messages,
+            response=formatted_response,
+            system_prompt=system_prompt,
+            tool_specs=tool_specs,
+            tool_choice=tool_choice,
+            **kwargs
+        )
+
+        return formatted_response
 
     @override
     async def get_json(
@@ -370,13 +410,13 @@ class GeminiModel(Model):
         tool_choice: ToolChoice | None = None,
         **kwargs: Any,
     ) -> ChatCompletionAssistantMessage:
-        """Get JSON output from the model using Gemini's native JSON output.
+        """Get JSON output from the model using Gemini's native JSON output with caching support.
 
         - Docs: https://ai.google.dev/gemini-api/docs/structured-output
 
         Args:
             output_model: The output model to use for the agent.
-            prompt: The prompt messages to use for the agent.
+            messages: The prompt messages to use for the agent.
             system_prompt: System prompt to provide context to the model.
             tool_specs: List of tool specifications to make available to the model.
             tool_choice: Selection strategy for tool invocation.
@@ -385,6 +425,23 @@ class GeminiModel(Model):
         Returns:
             The JSON output from the model.
         """
+        # Include output_model schema in cache key
+        kwargs_with_model = {**kwargs, "output_model_schema": output_model.model_json_schema()}
+
+        # Check cache first
+        cached_response = self._get_from_cache(
+            messages=messages,
+            system_prompt=system_prompt,
+            tool_specs=tool_specs,
+            tool_choice=tool_choice,
+            **kwargs_with_model
+        )
+
+        if cached_response is not None:
+            logger.info("Returning cached response for Gemini model (get_json)")
+            return cached_response
+
+        # Cache miss - call API
         params = {
             **(self.config.get("params") or {}),
             "response_mime_type": "application/json",
@@ -393,4 +450,16 @@ class GeminiModel(Model):
         request = self._format_request(messages, tool_specs, system_prompt, params, tool_choice)
         client = genai.Client(**self.client_args).aio
         response = await client.models.generate_content(**request)
-        return self._format_response(response, output_model=output_model)
+        formatted_response = self._format_response(response, output_model=output_model)
+
+        # Save to cache
+        self._save_to_cache(
+            messages=messages,
+            response=formatted_response,
+            system_prompt=system_prompt,
+            tool_specs=tool_specs,
+            tool_choice=tool_choice,
+            **kwargs_with_model
+        )
+
+        return formatted_response
