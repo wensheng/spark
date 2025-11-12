@@ -34,7 +34,7 @@ class Graph(BaseGraph):
         self._channels_configured: bool = False
 
         # Initialize graph state
-        initial_state = kwargs.get('initial_state', None)
+        initial_state = kwargs.get('initial_state')
         self.state = GraphState(initial_state)
         self._state_enabled: bool = kwargs.get('enable_graph_state', True)
 

@@ -9,7 +9,6 @@ from typing import Any
 
 from pydantic import BaseModel
 
-
 _OPENAI_CLIENT = {}
 
 
@@ -26,7 +25,6 @@ def get_openai_client(provider: str = "openai", base_url: str | None = None):
         base_url=base_url,
     )
     return _OPENAI_CLIENT[provider]
-
 
 
 class SparkUtilError(Exception):
