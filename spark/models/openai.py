@@ -281,7 +281,7 @@ class OpenAIModel(Model):
                     "function": {
                         "name": tool_spec["name"],
                         "description": tool_spec["description"],
-                        "parameters": tool_spec["parameters"],
+                        "parameters": tool_spec["parameters"]["json"],
                     },
                 }
                 for tool_spec in tool_specs or []
