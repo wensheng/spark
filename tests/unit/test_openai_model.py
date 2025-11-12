@@ -105,11 +105,13 @@ def tool_specs():
             "name": "test_tool",
             "description": "A test tool",
             "parameters": {
-                "type": "object",
-                "properties": {
-                    "input": {"type": "string"},
-                },
-                "required": ["input"],
+                "json": {
+                    "type": "object",
+                    "properties": {
+                        "input": {"type": "string"},
+                    },
+                    "required": ["input"],
+                }
             },
         },
     ]

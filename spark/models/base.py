@@ -19,7 +19,127 @@ class Model(ABC):
 
     This class defines the interface for all model implementations in the Strands Agents SDK. It provides a
     standardized way to configure and process requests for different AI model providers.
+
+    Supports optional response caching to avoid redundant API calls.
     """
+
+    def __init__(self):
+        """Initialize model with optional cache support."""
+        self._cache_manager: Optional[Any] = None
+        self._cache_enabled: bool = False
+        self._cache_ttl_seconds: int = 86400  # 24 hours default
+
+    def _get_provider_name(self) -> str:
+        """Get provider name for cache key generation.
+
+        Returns:
+            Provider name string (e.g., "openai", "bedrock", "gemini").
+        """
+        # Default implementation: derive from class name
+        class_name = self.__class__.__name__
+        if class_name.endswith("Model"):
+            return class_name[:-5].lower()
+        return class_name.lower()
+
+    def _init_cache(self, cache_config: Optional[Any] = None) -> None:
+        """Initialize cache manager if caching is enabled.
+
+        Args:
+            cache_config: Optional CacheConfig instance. If None, uses default config.
+        """
+        if self._cache_enabled:
+            from spark.models.cache import CacheManager, CacheConfig
+
+            config = cache_config or CacheConfig(enabled=True, ttl_seconds=self._cache_ttl_seconds)
+            self._cache_manager = CacheManager.get_instance(config)
+            logger.debug(f"Cache enabled for {self._get_provider_name()} with TTL={self._cache_ttl_seconds}s")
+
+    def _get_from_cache(
+        self,
+        messages: Messages,
+        system_prompt: Optional[str] = None,
+        tool_specs: Optional[list[ToolSpec]] = None,
+        **kwargs: Any,
+    ) -> Optional[ChatCompletionAssistantMessage]:
+        """Try to retrieve response from cache.
+
+        Args:
+            messages: The messages array
+            system_prompt: Optional system prompt
+            tool_specs: Optional tool specifications
+            **kwargs: Additional parameters
+
+        Returns:
+            Cached response if found and not expired, None otherwise.
+        """
+        if not self._cache_enabled or self._cache_manager is None:
+            return None
+
+        try:
+            model_id = self.get_config().get("model_id", "unknown")
+            cache_key = self._cache_manager.generate_cache_key(
+                provider=self._get_provider_name(),
+                model_id=model_id,
+                messages=messages,
+                system_prompt=system_prompt,
+                tool_specs=tool_specs,
+                **kwargs,
+            )
+
+            cached_response = self._cache_manager.get(cache_key=cache_key, provider=self._get_provider_name())
+
+            return cached_response
+        except Exception as e:
+            logger.warning(f"Error retrieving from cache: {e}")
+            return None
+
+    def _save_to_cache(
+        self,
+        messages: Messages,
+        response: ChatCompletionAssistantMessage,
+        system_prompt: Optional[str] = None,
+        tool_specs: Optional[list[ToolSpec]] = None,
+        **kwargs: Any,
+    ) -> None:
+        """Save response to cache.
+
+        Args:
+            messages: The messages array
+            response: The response to cache
+            system_prompt: Optional system prompt
+            tool_specs: Optional tool specifications
+            **kwargs: Additional parameters
+        """
+        if not self._cache_enabled or self._cache_manager is None:
+            return
+
+        try:
+            model_id = self.get_config().get("model_id", "unknown")
+            cache_key = self._cache_manager.generate_cache_key(
+                provider=self._get_provider_name(),
+                model_id=model_id,
+                messages=messages,
+                system_prompt=system_prompt,
+                tool_specs=tool_specs,
+                **kwargs,
+            )
+
+            request_data = {
+                "messages": messages,
+                "system_prompt": system_prompt,
+                "tool_specs": tool_specs,
+                "kwargs": kwargs,
+            }
+
+            self._cache_manager.set(
+                cache_key=cache_key,
+                provider=self._get_provider_name(),
+                model_id=model_id,
+                request=request_data,
+                response=response,
+            )
+        except Exception as e:
+            logger.warning(f"Error saving to cache: {e}")
 
     @abstractmethod
     # pragma: no cover
