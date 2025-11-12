@@ -73,7 +73,7 @@ class ToolUse(TypedDict):
     """
 
     input: Any
-    name: str
+    name: NotRequired[str]
     toolUseId: str
 
 
