@@ -7,6 +7,7 @@ It can:
 - call other agents/nodes
 """
 
+import asyncio
 import inspect
 import json
 import logging
@@ -106,6 +107,10 @@ class Agent(Node):
 
         # Initialize strategy-specific state
         self.reasoning_strategy.initialize_state(self._state)
+
+        # Initialize cost tracking
+        from spark.agents.cost_tracker import CostTracker
+        self.cost_tracker = CostTracker()
 
     @property
     def state(self) -> AgentState:
@@ -345,10 +350,45 @@ class Agent(Node):
         """
         tool_result_blocks: list[ContentBlock] = []
 
-        for tool_call in tool_calls:
-            result, tool_result_block = await self._execute_single_tool(tool_call, context)
-            if tool_result_block:
-                tool_result_blocks.append(tool_result_block)
+        if self.config.parallel_tool_execution and len(tool_calls) > 1:
+            # Execute tools in parallel for better performance
+            logger.debug(f"Executing {len(tool_calls)} tools in parallel")
+            results = await asyncio.gather(
+                *[self._execute_single_tool(tc, context) for tc in tool_calls],
+                return_exceptions=True
+            )
+
+            for i, result in enumerate(results):
+                if isinstance(result, Exception):
+                    # Handle exceptions from parallel execution
+                    logger.error(
+                        f"Tool execution failed in parallel mode: {result}",
+                        exc_info=result
+                    )
+                    # Create error result block
+                    tool_call = tool_calls[i]
+                    tool_func = tool_call.get('function', {})
+                    func_name = tool_func.get('name', 'unknown')
+                    tool_use_id = tool_call.get('id') or func_name
+
+                    error_block: ContentBlock = {
+                        'toolResult': {
+                            'toolUseId': tool_use_id,
+                            'content': [{'text': f"Error: {str(result)}"}],
+                            'status': 'error'
+                        }
+                    }
+                    tool_result_blocks.append(error_block)
+                else:
+                    _, tool_result_block = result
+                    if tool_result_block:
+                        tool_result_blocks.append(tool_result_block)
+        else:
+            # Execute tools sequentially (default)
+            for tool_call in tool_calls:
+                result, tool_result_block = await self._execute_single_tool(tool_call, context)
+                if tool_result_block:
+                    tool_result_blocks.append(tool_result_block)
 
         return tool_result_blocks
 
@@ -899,6 +939,198 @@ class Agent(Node):
     def clear_tool_traces(self) -> None:
         """Clear all tool execution traces."""
         self._state['tool_traces'] = []
+
+    def get_cost_stats(self):
+        """Get cost tracking statistics for this agent.
+
+        Returns:
+            CostStats object with token usage and cost information
+        """
+        return self.cost_tracker.get_stats()
+
+    def reset_cost_tracking(self) -> None:
+        """Reset cost tracking data."""
+        self.cost_tracker.reset()
+
+    def get_cost_summary(self) -> str:
+        """Get formatted cost summary.
+
+        Returns:
+            Human-readable string with cost breakdown
+        """
+        return self.cost_tracker.format_summary()
+
+    def checkpoint(self) -> dict[str, Any]:
+        """Create a checkpoint of the agent's current state.
+
+        This saves all stateful information needed to restore the agent later,
+        including conversation history, tool traces, cost tracking, and state.
+
+        Returns:
+            Dict containing the checkpoint data
+
+        Example:
+            checkpoint = agent.checkpoint()
+            # ... later ...
+            agent = Agent.restore(checkpoint, config)
+        """
+        from spark.agents.cost_tracker import CostStats
+
+        checkpoint_data = {
+            'version': '1.0',
+            'timestamp': time.time(),
+            'config': {
+                'name': self.config.name,
+                'description': self.config.description,
+                'system_prompt': self.config.system_prompt,
+                'prompt_template': self.config.prompt_template,
+                'output_mode': self.config.output_mode,
+                'max_steps': self.config.max_steps,
+                'parallel_tool_execution': self.config.parallel_tool_execution,
+            },
+            'memory': {
+                'messages': list(self.memory_manager.memory),
+                'policy': self.config.memory_config.policy.value,
+                'window': self.config.memory_config.window,
+            },
+            'state': {
+                'tool_traces': list(self._state['tool_traces']),
+                'last_result': self._state['last_result'],
+                'last_error': self._state['last_error'],
+                'last_output': self._state['last_output'],
+                'history': self._state.get('history', []),
+            },
+            'cost_tracking': {
+                'stats': self.cost_tracker.get_stats().__dict__,
+                'calls': [
+                    {
+                        'model_id': call.model_id,
+                        'input_tokens': call.input_tokens,
+                        'output_tokens': call.output_tokens,
+                        'cost': call.total_cost,
+                        'timestamp': call.timestamp,
+                    }
+                    for call in self.cost_tracker.calls
+                ],
+            },
+        }
+
+        logger.debug(f"Created checkpoint with {len(checkpoint_data['memory']['messages'])} messages")
+        return checkpoint_data
+
+    @classmethod
+    def restore(cls, checkpoint: dict[str, Any], config: Optional[AgentConfig] = None) -> 'Agent':
+        """Restore an agent from a checkpoint.
+
+        Args:
+            checkpoint: Checkpoint data from agent.checkpoint()
+            config: Optional AgentConfig to use. If None, creates config from checkpoint.
+                   Note: model, tools, and hooks cannot be serialized, so must be provided.
+
+        Returns:
+            Restored Agent instance
+
+        Example:
+            checkpoint = agent.checkpoint()
+            # ... later, with same config ...
+            agent = Agent.restore(checkpoint, config)
+        """
+        from spark.agents.memory import MemoryConfig, MemoryPolicyType
+
+        # Use provided config or create minimal one
+        if config is None:
+            # Create minimal config from checkpoint
+            ckpt_config = checkpoint['config']
+            from spark.models.echo import EchoModel
+
+            config = AgentConfig(
+                model=EchoModel(),  # Placeholder - user should provide real model
+                name=ckpt_config.get('name'),
+                description=ckpt_config.get('description'),
+                system_prompt=ckpt_config.get('system_prompt'),
+                prompt_template=ckpt_config.get('prompt_template'),
+                output_mode=ckpt_config.get('output_mode', 'text'),
+                max_steps=ckpt_config.get('max_steps', 100),
+                parallel_tool_execution=ckpt_config.get('parallel_tool_execution', False),
+            )
+            logger.warning(
+                "No config provided to restore(), using EchoModel. "
+                "Provide original config for full restoration."
+            )
+
+        # Create agent with config
+        agent = cls(config=config)
+
+        # Restore memory
+        memory_data = checkpoint['memory']
+        for msg in memory_data['messages']:
+            agent.memory_manager.add_message(msg)
+
+        # Restore state
+        state_data = checkpoint['state']
+        agent._state['tool_traces'] = state_data.get('tool_traces', [])
+        agent._state['last_result'] = state_data.get('last_result')
+        agent._state['last_error'] = state_data.get('last_error')
+        agent._state['last_output'] = state_data.get('last_output')
+        if 'history' in state_data:
+            agent._state['history'] = state_data['history']
+
+        # Restore cost tracking
+        cost_data = checkpoint.get('cost_tracking', {})
+        if 'calls' in cost_data:
+            for call in cost_data['calls']:
+                agent.cost_tracker.record_call(
+                    model_id=call['model_id'],
+                    input_tokens=call['input_tokens'],
+                    output_tokens=call['output_tokens'],
+                    timestamp=call['timestamp']
+                )
+
+        logger.info(
+            f"Restored agent from checkpoint: "
+            f"{len(memory_data['messages'])} messages, "
+            f"{len(state_data.get('tool_traces', []))} tool traces"
+        )
+
+        return agent
+
+    def save_checkpoint(self, filepath: str) -> None:
+        """Save checkpoint to a JSON file.
+
+        Args:
+            filepath: Path to save the checkpoint file
+
+        Example:
+            agent.save_checkpoint('agent_state.json')
+        """
+        checkpoint = self.checkpoint()
+
+        import json
+        with open(filepath, 'w') as f:
+            json.dump(checkpoint, f, indent=2, default=str)
+
+        logger.info(f"Saved checkpoint to {filepath}")
+
+    @classmethod
+    def load_checkpoint(cls, filepath: str, config: Optional[AgentConfig] = None) -> 'Agent':
+        """Load agent from a checkpoint file.
+
+        Args:
+            filepath: Path to the checkpoint file
+            config: Optional AgentConfig (required for model, tools, hooks)
+
+        Returns:
+            Restored Agent instance
+
+        Example:
+            agent = Agent.load_checkpoint('agent_state.json', config)
+        """
+        import json
+        with open(filepath, 'r') as f:
+            checkpoint = json.load(f)
+
+        logger.info(f"Loaded checkpoint from {filepath}")
+        return cls.restore(checkpoint, config)
 
     def _truncate_history(self, history: list[dict[str, Any]]) -> None:
         """Truncate the history based on the memory policy."""

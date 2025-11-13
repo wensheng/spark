@@ -110,6 +110,24 @@ class AgentConfig(NodeConfig):
     max_steps: int = 100
     """Maximum tool-execution steps per call. 0 means unlimited."""
 
+    parallel_tool_execution: bool = False
+    """Enable parallel tool execution when multiple tools are called.
+
+    When True, tools are executed concurrently using asyncio.gather().
+    When False (default), tools are executed sequentially.
+
+    Note: Only enable if your tools are independent and thread-safe.
+    Parallel execution can improve performance but may cause issues
+    if tools have dependencies or side effects.
+
+    Example:
+        config = AgentConfig(
+            model=model,
+            tools=[search, calculate],
+            parallel_tool_execution=True  # Execute tools concurrently
+        )
+    """
+
     reasoning_strategy: Optional[Any] = None
     """Reasoning strategy for structured thinking patterns.
 

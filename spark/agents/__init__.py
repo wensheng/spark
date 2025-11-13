@@ -5,6 +5,7 @@ from spark.agents.config import AgentConfig
 from spark.agents.memory import MemoryManager, MemoryConfig, MemoryPolicyType
 from spark.agents.strategies import ReasoningStrategy, NoOpStrategy, ReActStrategy, ChainOfThoughtStrategy
 from spark.agents.types import AgentState, ToolTrace
+from spark.agents.cost_tracker import CostTracker, CallCost, CostStats
 
 __all__ = [
     # Agent classes
@@ -25,6 +26,10 @@ __all__ = [
     'NoOpStrategy',
     'ReActStrategy',
     'ChainOfThoughtStrategy',
+    # Cost Tracking
+    'CostTracker',
+    'CallCost',
+    'CostStats',
     # Types
     'AgentState',
     'ToolTrace',
