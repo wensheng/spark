@@ -21,7 +21,6 @@ import functools
 import inspect
 import logging
 from typing import (
-    TYPE_CHECKING,
     Any,
     Awaitable,
     Callable,
@@ -508,7 +507,7 @@ class DecoratedFunctionTool(BaseTool, Generic[P, R]):
             return await result
 
         try:
-            loop = asyncio.get_running_loop()
+            asyncio.get_running_loop()
         except RuntimeError:
             return asyncio.run(_runner())
         DecoratedFunctionTool._cleanup_awaitable(result)

@@ -7,17 +7,14 @@ import inspect
 import os
 from typing import Any
 
+import openai
 from pydantic import BaseModel
 
-_OPENAI_CLIENT = {}
+_OPENAI_CLIENT: dict[str, openai.OpenAI] = {}
 
 
 def get_openai_client(provider: str = "openai", base_url: str | None = None):
     """Get or create an OpenAI client for the specified provider."""
-    try:
-        import openai
-    except ImportError:
-        raise ImportError("openai package is required for get_openai_client")
     if provider in _OPENAI_CLIENT:
         return _OPENAI_CLIENT[provider]
     _OPENAI_CLIENT[provider] = openai.OpenAI(

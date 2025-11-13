@@ -79,8 +79,9 @@ class OpenAIModel(Model):
         self.client_args = client_args or {}
 
         # Initialize cache if enabled
-        self._cache_enabled = self.config.get("enable_cache", False)
-        self._cache_ttl_seconds = self.config.get("cache_ttl_seconds", 86400)
+        self._cache_enabled = bool(self.config.get("enable_cache", False))
+        cache_ttl = self.config.get("cache_ttl_seconds", 86400)
+        self._cache_ttl_seconds = int(cache_ttl) if isinstance(cache_ttl, (int, str, float)) else 86400
         self._init_cache()
 
         logger.debug("config=<%s> | initializing", self.config)
@@ -371,11 +372,7 @@ class OpenAIModel(Model):
         """
         # Check cache first
         cached_response = self._get_from_cache(
-            messages=messages,
-            system_prompt=system_prompt,
-            tool_specs=tool_specs,
-            tool_choice=tool_choice,
-            **kwargs
+            messages=messages, system_prompt=system_prompt, tool_specs=tool_specs, tool_choice=tool_choice, **kwargs
         )
 
         if cached_response is not None:
@@ -423,7 +420,7 @@ class OpenAIModel(Model):
             system_prompt=system_prompt,
             tool_specs=tool_specs,
             tool_choice=tool_choice,
-            **kwargs
+            **kwargs,
         )
 
         return formatted_response
@@ -482,7 +479,7 @@ class OpenAIModel(Model):
             system_prompt=system_prompt,
             tool_specs=tool_specs,
             tool_choice=tool_choice,
-            **kwargs_with_model
+            **kwargs_with_model,
         )
 
         if cached_response is not None:
@@ -582,7 +579,7 @@ class OpenAIModel(Model):
             system_prompt=system_prompt,
             tool_specs=tool_specs,
             tool_choice=tool_choice,
-            **kwargs_with_model
+            **kwargs_with_model,
         )
 
         return result

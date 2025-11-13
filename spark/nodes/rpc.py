@@ -21,7 +21,6 @@ import ssl
 import time
 import traceback
 from typing import Any, Dict, List, Optional, Union
-from pathlib import Path
 
 from starlette.applications import Starlette
 from starlette.routing import Route, WebSocketRoute
@@ -37,6 +36,7 @@ from spark.nodes.types import ExecutionContext
 # JSON-RPC 2.0 Error Codes
 class JsonRpcError:
     """Standard JSON-RPC 2.0 error codes."""
+
     PARSE_ERROR = -32700
     INVALID_REQUEST = -32600
     METHOD_NOT_FOUND = -32601
@@ -86,7 +86,7 @@ class RpcNode(Node):
         ssl_keyfile: Optional[str] = None,
         ssl_ca_certs: Optional[str] = None,
         request_timeout: float = 30.0,
-        **kwargs
+        **kwargs,
     ):
         super().__init__(**kwargs)
 
@@ -121,7 +121,7 @@ class RpcNode(Node):
                 Route("/health", self._health_check, methods=["GET"]),
                 WebSocketRoute("/ws", self._handle_websocket),
             ],
-            on_shutdown=[self._on_app_shutdown]
+            on_shutdown=[self._on_app_shutdown],
         )
 
     # ============================================================================
@@ -169,11 +169,9 @@ class RpcNode(Node):
         for i, response in enumerate(responses):
             if isinstance(response, Exception):
                 request_id = requests[i].get("id")
-                results.append(self._error_dict(
-                    request_id,
-                    JsonRpcError.INTERNAL_ERROR,
-                    f"Internal error: {str(response)}"
-                ))
+                results.append(
+                    self._error_dict(request_id, JsonRpcError.INTERNAL_ERROR, f"Internal error: {str(response)}")
+                )
             else:
                 results.append(response)
 
@@ -203,7 +201,9 @@ class RpcNode(Node):
             return self._error_dict(request_id, JsonRpcError.INVALID_REQUEST, "Invalid Request: method must be string")
 
         if not isinstance(params, (dict, list)):
-            return self._error_dict(request_id, JsonRpcError.INVALID_REQUEST, "Invalid Request: params must be object or array")
+            return self._error_dict(
+                request_id, JsonRpcError.INVALID_REQUEST, "Invalid Request: params must be object or array"
+            )
 
         # Process the request
         try:
@@ -213,11 +213,7 @@ class RpcNode(Node):
             if request_id is None:
                 return None
 
-            return {
-                "jsonrpc": "2.0",
-                "result": result,
-                "id": request_id
-            }
+            return {"jsonrpc": "2.0", "result": result, "id": request_id}
 
         except MethodNotFoundError as e:
             if request_id is None:
@@ -237,11 +233,7 @@ class RpcNode(Node):
         except Exception as e:
             if request_id is None:
                 return None
-            return self._error_dict(
-                request_id,
-                JsonRpcError.INTERNAL_ERROR,
-                f"Internal error: {str(e)}"
-            )
+            return self._error_dict(request_id, JsonRpcError.INTERNAL_ERROR, f"Internal error: {str(e)}")
 
     # ============================================================================
     # WebSocket Endpoint
@@ -272,9 +264,7 @@ class RpcNode(Node):
                 try:
                     body = json.loads(data)
                 except json.JSONDecodeError:
-                    await websocket.send_json(
-                        self._error_dict(None, JsonRpcError.PARSE_ERROR, "Parse error")
-                    )
+                    await websocket.send_json(self._error_dict(None, JsonRpcError.PARSE_ERROR, "Parse error"))
                     continue
 
                 # Handle batch or single request
@@ -298,12 +288,7 @@ class RpcNode(Node):
             self.websocket_clients.pop(client_id, None)
             await self.on_websocket_disconnect(client_id, websocket)
 
-    async def send_notification_to_client(
-        self,
-        client_id: str,
-        method: str,
-        params: Union[Dict, List]
-    ):
+    async def send_notification_to_client(self, client_id: str, method: str, params: Union[Dict, List]):
         """
         Send a JSON-RPC notification to a specific WebSocket client.
 
@@ -316,11 +301,7 @@ class RpcNode(Node):
             raise ValueError(f"Client {client_id} not connected")
 
         websocket = self.websocket_clients[client_id]
-        notification = {
-            "jsonrpc": "2.0",
-            "method": method,
-            "params": params
-        }
+        notification = {"jsonrpc": "2.0", "method": method, "params": params}
 
         await websocket.send_json(notification)
 
@@ -332,11 +313,7 @@ class RpcNode(Node):
             method: RPC method name
             params: Method parameters
         """
-        notification = {
-            "jsonrpc": "2.0",
-            "method": method,
-            "params": params
-        }
+        notification = {"jsonrpc": "2.0", "method": method, "params": params}
 
         # Send to all clients
         tasks = []
@@ -351,10 +328,7 @@ class RpcNode(Node):
     # ============================================================================
 
     async def _process_rpc_request(
-        self,
-        method: str,
-        params: Union[Dict, List],
-        request_id: Optional[Union[str, int]]
+        self, method: str, params: Union[Dict, List], request_id: Optional[Union[str, int]]
     ) -> Any:
         """
         Process a JSON-RPC request by putting it in the node's mailbox.
@@ -384,7 +358,7 @@ class RpcNode(Node):
                 "params": params,
                 "id": request_id,
                 "_is_rpc": True,
-                "_timestamp": time.time()
+                "_timestamp": time.time(),
             }
         )
 
@@ -458,12 +432,7 @@ class RpcNode(Node):
 
             return {"rpc_handled": True, "method": method, "success": False, "error": str(e)}
 
-    async def _dispatch_rpc_method(
-        self,
-        method: str,
-        params: Union[Dict, List],
-        context: ExecutionContext
-    ) -> Any:
+    async def _dispatch_rpc_method(self, method: str, params: Union[Dict, List], context: ExecutionContext) -> Any:
         """
         Dispatch RPC method to appropriate handler.
 
@@ -531,10 +500,7 @@ class RpcNode(Node):
         ssl_context = None
         if self.ssl_certfile and self.ssl_keyfile:
             ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-            ssl_context.load_cert_chain(
-                certfile=self.ssl_certfile,
-                keyfile=self.ssl_keyfile
-            )
+            ssl_context.load_cert_chain(certfile=self.ssl_certfile, keyfile=self.ssl_keyfile)
 
             if self.ssl_ca_certs:
                 ssl_context.load_verify_locations(cafile=self.ssl_ca_certs)
@@ -546,7 +512,7 @@ class RpcNode(Node):
             port=self.port,
             ssl_certfile=self.ssl_certfile,
             ssl_keyfile=self.ssl_keyfile,
-            log_level="info"
+            log_level="info",
         )
 
         self.server = uvicorn.Server(config)
@@ -569,10 +535,7 @@ class RpcNode(Node):
             await websocket.close()
 
         # Send shutdown message to mailbox
-        await self.mailbox.send(ChannelMessage(
-            payload={},
-            is_shutdown=True
-        ))
+        await self.mailbox.send(ChannelMessage(payload={}, is_shutdown=True))
 
         # Wait for tasks to complete (with timeout)
         tasks = []
@@ -598,7 +561,7 @@ class RpcNode(Node):
             "status": "ok",
             "node": self.__class__.__name__,
             "websocket_clients": len(self.websocket_clients),
-            "pending_requests": len(self.pending_requests)
+            "pending_requests": len(self.pending_requests),
         })
 
     # ============================================================================
@@ -609,34 +572,19 @@ class RpcNode(Node):
         """Create JSON-RPC error response."""
         return JSONResponse(self._error_dict(request_id, code, message))
 
-    def _error_dict(
-        self,
-        request_id: Optional[Union[str, int]],
-        code: int,
-        message: str,
-        data: Any = None
-    ) -> Dict:
+    def _error_dict(self, request_id: Optional[Union[str, int]], code: int, message: str, data: Any = None) -> Dict:
         """Create JSON-RPC error dict."""
         error = {"code": code, "message": message}
         if data is not None:
             error["data"] = data
 
-        return {
-            "jsonrpc": "2.0",
-            "error": error,
-            "id": request_id
-        }
+        return {"jsonrpc": "2.0", "error": error, "id": request_id}
 
     # ============================================================================
     # Hooks (Override in Subclasses)
     # ============================================================================
 
-    async def before_request(
-        self,
-        method: str,
-        params: Union[Dict, List],
-        request_id: Optional[Union[str, int]]
-    ):
+    async def before_request(self, method: str, params: Union[Dict, List], request_id: Optional[Union[str, int]]):
         """
         Hook called before processing each RPC request.
 
@@ -655,7 +603,7 @@ class RpcNode(Node):
         params: Union[Dict, List],
         request_id: Optional[Union[str, int]],
         result: Any,
-        error: Optional[str]
+        error: Optional[str],
     ):
         """
         Hook called after processing each RPC request.
@@ -696,11 +644,14 @@ class RpcNode(Node):
 # Exceptions
 # ============================================================================
 
+
 class MethodNotFoundError(Exception):
     """Raised when RPC method is not found."""
+
     pass
 
 
 class InvalidParamsError(Exception):
     """Raised when RPC method parameters are invalid."""
+
     pass

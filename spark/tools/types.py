@@ -5,7 +5,7 @@ Spark adds 'output_schema' to support output validation.
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, Awaitable, Literal, Protocol, Union, cast
+from typing import Any, Literal, Union, cast
 from pydantic import BaseModel, ConfigDict
 
 

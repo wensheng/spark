@@ -693,11 +693,7 @@ class BedrockModel(Model):
         """
         # Check cache first
         cached_response = self._get_from_cache(
-            messages=messages,
-            system_prompt=system_prompt,
-            tool_specs=tool_specs,
-            tool_choice=tool_choice,
-            **kwargs
+            messages=messages, system_prompt=system_prompt, tool_specs=tool_specs, tool_choice=tool_choice, **kwargs
         )
 
         if cached_response is not None:
@@ -723,7 +719,7 @@ class BedrockModel(Model):
             system_prompt=system_prompt,
             tool_specs=tool_specs,
             tool_choice=tool_choice,
-            **kwargs
+            **kwargs,
         )
 
         return formatted_response
@@ -760,7 +756,7 @@ class BedrockModel(Model):
             system_prompt=system_prompt,
             tool_specs=tool_specs,
             tool_choice=tool_choice,
-            **kwargs_with_model
+            **kwargs_with_model,
         )
 
         if cached_response is not None:
@@ -781,7 +777,7 @@ class BedrockModel(Model):
             system_prompt=system_prompt,
             tool_specs=tool_specs,
             tool_choice=tool_choice,
-            **kwargs_with_model
+            **kwargs_with_model,
         )
 
         return formatted_response

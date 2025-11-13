@@ -284,7 +284,7 @@ class PythonAgentTool(BaseTool):
             return await result
 
         try:
-            loop = asyncio.get_running_loop()
+            asyncio.get_running_loop()
         except RuntimeError:
             return asyncio.run(_runner())
         PythonAgentTool._cleanup_awaitable(result)

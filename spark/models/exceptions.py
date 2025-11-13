@@ -1,7 +1,5 @@
 """Exception-related type definitions for the ADK."""
 
-from typing import Any
-
 
 class ContextWindowOverflowException(Exception):
     """Exception raised when the context window is exceeded.

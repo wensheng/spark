@@ -23,7 +23,6 @@ from spark.tools.types import ToolChoice, ToolSpec
 from spark.models.base import Model
 from spark.models.utils import validate_config_keys
 
-
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T", bound=BaseModel)
@@ -368,11 +367,7 @@ class GeminiModel(Model):
         """
         # Check cache first
         cached_response = self._get_from_cache(
-            messages=messages,
-            system_prompt=system_prompt,
-            tool_specs=tool_specs,
-            tool_choice=tool_choice,
-            **kwargs
+            messages=messages, system_prompt=system_prompt, tool_specs=tool_specs, tool_choice=tool_choice, **kwargs
         )
 
         if cached_response is not None:
@@ -395,7 +390,7 @@ class GeminiModel(Model):
             system_prompt=system_prompt,
             tool_specs=tool_specs,
             tool_choice=tool_choice,
-            **kwargs
+            **kwargs,
         )
 
         return formatted_response
@@ -434,7 +429,7 @@ class GeminiModel(Model):
             system_prompt=system_prompt,
             tool_specs=tool_specs,
             tool_choice=tool_choice,
-            **kwargs_with_model
+            **kwargs_with_model,
         )
 
         if cached_response is not None:
@@ -459,7 +454,7 @@ class GeminiModel(Model):
             system_prompt=system_prompt,
             tool_specs=tool_specs,
             tool_choice=tool_choice,
-            **kwargs_with_model
+            **kwargs_with_model,
         )
 
         return formatted_response

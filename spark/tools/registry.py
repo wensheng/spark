@@ -5,7 +5,7 @@ invocation capabilities.
 """
 
 import logging
-from typing import Any, Iterable, Optional, TypedDict, cast
+from typing import Any, Iterable, Optional, TypedDict
 
 from spark.tools.types import BaseTool, ToolSpec
 from spark.tools.tools import normalize_schema, normalize_tool_spec

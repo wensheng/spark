@@ -16,14 +16,17 @@ def get_model_from_id(model_id: str, **kwargs) -> Model:
     model_id_no_prefix = model_id.split("/", 1)[1]  # Extract the part after the prefix
     if model_id.startswith("openai/"):
         from spark.models.openai import OpenAIModel
+
         return OpenAIModel(model_id=model_id_no_prefix, **kwargs)
 
     if model_id.startswith("bedrock/"):
         from spark.models.bedrock import BedrockModel
+
         return BedrockModel(model_id=model_id_no_prefix, **kwargs)
 
     if model_id.startswith("gemini/"):
         from spark.models.gemini import GeminiModel
+
         return GeminiModel(model_id=model_id_no_prefix, **kwargs)
 
     raise ValueError(f"Unknown model ID prefix: {model_id}")
@@ -42,8 +45,7 @@ def validate_config_keys(config_dict: Mapping[str, Any], config_class: Type) -> 
 
     if invalid_keys:
         warnings.warn(
-            f"Invalid configuration parameters: {sorted(invalid_keys)}."
-            f"\nValid parameters are: {sorted(valid_keys)}.",
+            f"Invalid configuration parameters: {sorted(invalid_keys)}.\nValid parameters are: {sorted(valid_keys)}.",
             stacklevel=4,
         )
 
