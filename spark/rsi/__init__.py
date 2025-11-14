@@ -5,7 +5,7 @@ This package provides components for autonomous graph improvement:
 - Performance analysis and bottleneck detection
 - Hypothesis generation for improvements
 - Change validation and automated testing
-- Safe deployment with rollback (Phase 4+)
+- Safe deployment with rollback
 
 Phase 1 Components:
 - PerformanceAnalyzerNode: Analyze telemetry and detect bottlenecks
@@ -16,8 +16,12 @@ Phase 2 Components:
 - HypothesisGeneratorNode: Generate improvement hypotheses using LLM reasoning
 - ChangeValidatorNode: Validate hypotheses for safety and correctness
 
-Phase 3 Components (NEW):
+Phase 3 Components:
 - HypothesisTesterNode: Automated A/B testing of hypotheses with statistical analysis
+
+Phase 4 Components (NEW):
+- ChangeApplicator: Apply hypothesis changes to graph specifications
+- DeploymentControllerNode: Safe deployment with monitoring and rollback
 
 Usage:
     from spark.rsi import (
@@ -25,7 +29,10 @@ Usage:
         GraphIntrospector,
         HypothesisGeneratorNode,
         ChangeValidatorNode,
-        HypothesisTesterNode
+        HypothesisTesterNode,
+        ChangeApplicator,
+        DeploymentControllerNode,
+        DeploymentConfig
     )
     from spark.telemetry import TelemetryConfig
     from spark.graphs import Graph
@@ -49,7 +56,17 @@ Usage:
             tester = HypothesisTesterNode(num_baseline_runs=20, num_candidate_runs=20)
             test_result = await tester.run({'hypothesis': hypothesis, 'graph': graph})
             if test_result['passed']:
-                print(f"Hypothesis passed testing: {hypothesis.rationale}")
+                # Phase 4: Deploy hypothesis
+                controller = DeploymentControllerNode(
+                    deployment_config=DeploymentConfig(strategy="direct")
+                )
+                deploy_result = await controller.run({
+                    'hypothesis': hypothesis,
+                    'test_result': test_result['test_result'],
+                    'baseline_spec': graph_spec
+                })
+                if deploy_result['success']:
+                    print(f"Hypothesis deployed: {hypothesis.rationale}")
 """
 
 # Phase 1 exports
@@ -64,7 +81,15 @@ from spark.rsi.change_validator import ChangeValidatorNode
 # Phase 3 exports
 from spark.rsi.hypothesis_tester import HypothesisTesterNode
 
-__version__ = "0.3.0"  # Phase 3
+# Phase 4 exports
+from spark.rsi.change_applicator import ChangeApplicator, ChangeApplicationError
+from spark.rsi.deployment_controller import (
+    DeploymentControllerNode,
+    DeploymentConfig,
+    DeploymentRecord
+)
+
+__version__ = "0.4.0"  # Phase 4
 
 __all__ = [
     # Phase 1
@@ -76,4 +101,10 @@ __all__ = [
     "ChangeValidatorNode",
     # Phase 3
     "HypothesisTesterNode",
+    # Phase 4
+    "ChangeApplicator",
+    "ChangeApplicationError",
+    "DeploymentControllerNode",
+    "DeploymentConfig",
+    "DeploymentRecord",
 ]
