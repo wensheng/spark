@@ -12,6 +12,7 @@ from spark.tools.types import ToolChoice, ToolSpec
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T", bound=BaseModel)
+ModelType = TypeVar("ModelType", bound="Model")
 
 
 class Model(ABC):
@@ -196,3 +197,59 @@ class Model(ABC):
             ValidationException: The response format from the model does not match the output_model
         """
         pass
+
+    def to_spec_dict(self) -> dict[str, Any]:
+        """Serialize model to spec-compatible dictionary.
+
+        This enables models to be serialized to JSON specifications
+        for bidirectional conversion between Python and JSON.
+
+        Returns:
+            Dictionary containing model type, config, and other metadata
+
+        Example:
+            spec = model.to_spec_dict()
+            # {
+            #   "type": "OpenAIModel",
+            #   "provider": "openai",
+            #   "model_id": "gpt-4o-mini",
+            #   "config": {...}
+            # }
+        """
+        config = self.get_config()
+
+        return {
+            "type": self.__class__.__name__,
+            "provider": self._get_provider_name(),
+            "model_id": config.get("model_id") if isinstance(config, dict) else None,
+            "config": config
+        }
+
+    @classmethod
+    def from_spec_dict(cls: Type[ModelType], spec: dict[str, Any]) -> ModelType:
+        """Deserialize model from spec dictionary.
+
+        Note: This is a default implementation that should be overridden
+        by subclasses for proper deserialization with specific parameters.
+
+        Args:
+            spec: Dictionary containing model configuration
+
+        Returns:
+            Model instance
+
+        Raises:
+            NotImplementedError: If subclass doesn't override this method
+
+        Example:
+            spec = {
+                "type": "OpenAIModel",
+                "model_id": "gpt-4o-mini",
+                "config": {...}
+            }
+            model = OpenAIModel.from_spec_dict(spec)
+        """
+        raise NotImplementedError(
+            f"{cls.__name__}.from_spec_dict() must be implemented by subclass. "
+            f"Cannot deserialize model from spec without subclass-specific implementation."
+        )

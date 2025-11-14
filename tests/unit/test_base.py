@@ -350,36 +350,39 @@ class TestNode:
         assert edge.condition.check(node) is False
     
     def test_on_method_with_custom_condition(self):
-        """Test on method with custom condition function."""
+        """Test that on method rejects callable conditions."""
         node = self.TstNode()
-        
+
         def custom_condition(n):
             return n.outputs and n.outputs.get("value", 0) > 10
-        
-        edge = node.on(condition=custom_condition)
-        assert edge.condition.func == custom_condition
+
+        # Callables should now raise TypeError
+        with pytest.raises(TypeError, match="Lambda/callable conditions are not supported"):
+            node.on(condition=custom_condition)
     
     def test_goto_method(self):
         """Test goto method."""
         node1 = self.TstNode()
         node2 = self.TstNode()
-        
+
         node1.goto(node2)
-        
+
         assert len(node1.edges) == 1
         edge = node1.edges[0]
         assert edge.from_node == node1
         assert edge.to_node == node2
-        assert edge.condition.func is None
-    
+        # No condition specified means no expr or equals
+        assert edge.condition.expr is None
+        assert edge.condition.equals is None
+
     def test_goto_method_with_condition(self):
-        """Test goto method with condition."""
+        """Test goto method with expr condition."""
         node1 = self.TstNode()
         node2 = self.TstNode()
-        condition = EdgeCondition(lambda n: True)
-        
+        condition = EdgeCondition(expr="$.outputs.score > 0.5")
+
         node1.goto(node2, condition)
-        
+
         assert len(node1.edges) == 1
         edge = node1.edges[0]
         assert edge.from_node == node1
@@ -389,102 +392,55 @@ class TestNode:
 
 class TestEdgeCondition:
     """Test EdgeCondition class."""
-    
+
     def test_default_initialization(self):
         """Test default initialization."""
         condition = EdgeCondition()
-        assert condition.func is None
-    
-    def test_initialization_with_condition(self):
-        """Test initialization with condition function."""
-        def test_func(node):
-            return True
-        
-        condition = EdgeCondition(test_func)
-        assert condition.func == test_func
-    
+        assert condition.expr is None
+        assert condition.equals is None
+
+    def test_initialization_with_expr(self):
+        """Test initialization with expression."""
+        condition = EdgeCondition(expr="$.outputs.score > 0.5")
+        assert condition.expr == "$.outputs.score > 0.5"
+        assert condition.equals is None
+
+    def test_initialization_with_equals(self):
+        """Test initialization with equals dict."""
+        condition = EdgeCondition(equals={'status': 'ok'})
+        assert condition.expr is None
+        assert condition.equals == {'status': 'ok'}
+
     def test_check_none_condition(self):
         """Test check with None condition (always True)."""
         condition = EdgeCondition()
         node = TestNode.TstNode()
         assert condition.check(node) is True
-    
-    def test_check_callable_condition_simple(self):
-        """Test check with simple callable condition."""
-        def simple_condition(node):
-            return node.outputs and node.outputs.get("status") == "ok"
-        
-        condition = EdgeCondition(simple_condition)
+
+    def test_check_equals_condition_simple(self):
+        """Test check with equals condition."""
+        condition = EdgeCondition(equals={'status': 'ok'})
         node = TestNode.TstNode()
-        
+
         # Test with matching outputs
-        node.outputs = {"status": "ok"}
+        node.outputs = NodeMessage(content={'status': 'ok'})
         assert condition.check(node) is True
-        
+
         # Test with non-matching outputs
-        node.outputs = {"status": "error"}
+        node.outputs = NodeMessage(content={'status': 'error'})
         assert condition.check(node) is False
-    
-    def test_check_callable_condition_with_output_and_context(self):
-        """Test check with condition that takes output and context."""
-        def output_context_condition(node):
-            return node.outputs.get("value") > 10
-        
-        condition = EdgeCondition(output_context_condition)
+
+    def test_check_expr_condition(self):
+        """Test check with expression condition."""
+        condition = EdgeCondition(expr="$.outputs.value > 10")
         node = TestNode.TstNode()
-        node.outputs = {"value": 15}
-        
+
+        # Test with value greater than 10
+        node.outputs = NodeMessage(content={'value': 15})
         assert condition.check(node) is True
-        
-        node.outputs = {"value": 5}
-        assert condition.check(node) is False
-    
-    def test_check_callable_condition_with_context_only(self):
-        """Test check with condition that takes only context."""
-        def context_condition(node):
-            return node._state.get("enabled", False)
-        
-        condition = EdgeCondition(context_condition)
-        node = TestNode.TstNode()
-        node._state = {"enabled": True}
-        
-        assert condition.check(node) is True
-        
-        node._state = {"enabled": False}
-        assert condition.check(node) is False
-    
-    def test_check_callable_condition_with_output_only(self):
-        """Test check with condition that takes only output."""
-        def output_condition(node):
-            return node.outputs.get("ready", False)
-        
-        condition = EdgeCondition(output_condition)
-        node = TestNode.TstNode()
-        node.outputs = {"ready": True}
-        
-        assert condition.check(node) is True
-        
-        node.outputs = {"ready": False}
-        assert condition.check(node) is False
-    
-    def test_check_callable_condition_no_args(self):
-        """Test check with condition that takes no arguments."""
-        def no_arg_condition(node):
-            return True
-        
-        condition = EdgeCondition(no_arg_condition)
-        node = TestNode.TstNode()
-        assert condition.check(node) is True
-    
-    def test_check_callable_condition_exception_handling(self):
-        """Test check with condition that raises exception."""
-        def error_condition(node):
-            raise ValueError("Test error")
-        
-        condition = EdgeCondition(error_condition)
-        node = TestNode.TstNode()
-        
-        # Should return False and print error message
+
+        # Test with value less than 10
+        node.outputs = NodeMessage(content={'value': 5})
         assert condition.check(node) is False
 
 

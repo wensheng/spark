@@ -1,7 +1,7 @@
 """Tool registry.
 
 This module provides the central registry for all tools available to the agent, including discovery, validation, and
-invocation capabilities.
+invocation capabilities. Enhanced with spec-compatible serialization support.
 """
 
 import logging
@@ -9,6 +9,7 @@ from typing import Any, Iterable, Optional, TypedDict
 
 from spark.tools.types import BaseTool, ToolSpec
 from spark.tools.tools import normalize_schema, normalize_tool_spec
+from spark.utils.import_utils import import_from_ref, get_ref_for_callable, validate_reference
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +25,8 @@ class ToolRegistry:
         self.registry: dict[str, BaseTool] = {}
         self.dynamic_tools: dict[str, BaseTool] = {}
         self.tool_config: Optional[dict[str, Any]] = None
+        # Track tool references for spec serialization
+        self.tool_refs: dict[str, str] = {}  # tool_name -> module:function
 
     def process_tools(self, tools: list[Any]) -> list[str]:
         """Process tools list that can contain tool names, paths, imported modules, or functions.
@@ -130,6 +133,9 @@ class ToolRegistry:
         # Register in main registry
         self.registry[tool.tool_name] = tool
 
+        # Try to extract tool reference for spec serialization
+        self._try_capture_tool_ref(tool)
+
         # Register in dynamic tools if applicable
         if tool.is_dynamic:
             self.dynamic_tools[tool.tool_name] = tool
@@ -211,6 +217,196 @@ class ToolRegistry:
                 prop_def["type"] = "string"
             if "description" not in prop_def:
                 prop_def["description"] = f"Property {prop_name}"
+
+    def _try_capture_tool_ref(self, tool: BaseTool) -> None:
+        """Try to capture the module:function reference for a tool.
+
+        This attempts to extract the reference from DecoratedFunctionTool instances
+        to enable automatic serialization support.
+
+        Args:
+            tool: The tool to extract reference from
+        """
+        # Check if this is a DecoratedFunctionTool (has _tool_func attribute)
+        if hasattr(tool, '_tool_func'):
+            func = getattr(tool, '_tool_func')
+            try:
+                ref = get_ref_for_callable(func)
+                self.tool_refs[tool.tool_name] = ref
+                logger.debug("tool_name=<%s>, ref=<%s> | captured tool reference", tool.tool_name, ref)
+            except Exception as e:
+                logger.debug(
+                    "tool_name=<%s> | could not capture tool reference: %s",
+                    tool.tool_name,
+                    e
+                )
+
+    def register_tool_by_ref(self, ref: str, tool_name: Optional[str] = None) -> None:
+        """Register a tool by module:function string reference.
+
+        This enables spec-compatible tool registration where tools are referenced
+        by their module path instead of requiring instances.
+
+        Args:
+            ref: String reference in format "module.path:function_name"
+            tool_name: Optional custom name for the tool (defaults to function name)
+
+        Raises:
+            ValueError: If the reference is invalid or cannot be imported
+
+        Example:
+            registry.register_tool_by_ref("myapp.tools:search_database")
+            registry.register_tool_by_ref("myapp.tools:calculate", tool_name="calc")
+        """
+        # Validate the reference
+        valid, error = validate_reference(ref)
+        if not valid:
+            raise ValueError(f"Invalid tool reference '{ref}': {error}")
+
+        # Import the tool
+        try:
+            tool = import_from_ref(ref)
+        except Exception as e:
+            raise ValueError(f"Failed to import tool from '{ref}': {e}") from e
+
+        # Check if it's a BaseTool instance
+        if not isinstance(tool, BaseTool):
+            raise ValueError(
+                f"Tool at '{ref}' is not a BaseTool instance. "
+                f"Use @tool decorator or subclass BaseTool."
+            )
+
+        # Determine the actual name to use
+        actual_tool_name = tool_name or tool.tool_name
+
+        # If custom name is provided and different from tool's name, register under custom name
+        if tool_name and tool_name != tool.tool_name:
+            # Register with custom name by directly adding to registry
+            self.registry[tool_name] = tool
+            logger.debug(
+                "tool_name=<%s>, original_name=<%s>, tool_type=<%s> | registering tool with custom name",
+                tool_name,
+                tool.tool_name,
+                tool.tool_type
+            )
+        else:
+            # Register normally
+            self.register_tool(tool)
+
+        # Store the reference for serialization
+        self.tool_refs[actual_tool_name] = ref
+
+        logger.debug("tool_name=<%s>, ref=<%s> | registered tool by reference", actual_tool_name, ref)
+
+    def get_tool_ref(self, tool_name: str) -> Optional[str]:
+        """Get the module:function reference for a registered tool.
+
+        Args:
+            tool_name: Name of the tool
+
+        Returns:
+            Module:function reference string, or None if not available
+
+        Example:
+            ref = registry.get_tool_ref("search_database")
+            # Returns: "myapp.tools:search_database"
+        """
+        return self.tool_refs.get(tool_name)
+
+    def to_spec_dict(self) -> dict[str, Any]:
+        """Serialize the registry to a spec-compatible dictionary.
+
+        This enables the tool registry to be serialized to JSON specifications
+        for bidirectional conversion between Python and JSON.
+
+        Returns:
+            Dictionary containing tool specifications and references
+
+        Example:
+            spec = registry.to_spec_dict()
+            # {
+            #   "tools": [
+            #     {"name": "search", "ref": "myapp.tools:search", "spec": {...}},
+            #     ...
+            #   ]
+            # }
+        """
+        tools_list = []
+
+        for tool_name, tool in self.registry.items():
+            tool_dict: dict[str, Any] = {
+                "name": tool_name,
+                "spec": tool.tool_spec.copy()
+            }
+
+            # Add reference if available
+            if tool_name in self.tool_refs:
+                tool_dict["ref"] = self.tool_refs[tool_name]
+
+            # Add metadata
+            tool_dict["metadata"] = {
+                "tool_type": tool.tool_type,
+                "is_dynamic": tool.is_dynamic,
+                "supports_async": tool.supports_async,
+                "is_long_running": tool.is_long_running,
+                "supports_hot_reload": tool.supports_hot_reload
+            }
+
+            tools_list.append(tool_dict)
+
+        return {"tools": tools_list}
+
+    @classmethod
+    def from_spec_dict(cls, spec: dict[str, Any]) -> "ToolRegistry":
+        """Deserialize a tool registry from a spec dictionary.
+
+        This creates a new ToolRegistry and registers all tools from the spec.
+        Tools with 'ref' field are loaded by reference, others must be
+        provided as instances.
+
+        Args:
+            spec: Dictionary containing tool specifications
+
+        Returns:
+            New ToolRegistry instance with registered tools
+
+        Raises:
+            ValueError: If tool references cannot be imported
+
+        Example:
+            spec = {
+                "tools": [
+                    {"name": "search", "ref": "myapp.tools:search", ...},
+                    ...
+                ]
+            }
+            registry = ToolRegistry.from_spec_dict(spec)
+        """
+        registry = cls()
+
+        for tool_dict in spec.get("tools", []):
+            tool_name = tool_dict["name"]
+
+            # If we have a reference, register by reference
+            if "ref" in tool_dict:
+                ref = tool_dict["ref"]
+                try:
+                    registry.register_tool_by_ref(ref, tool_name=tool_name)
+                    logger.debug("tool_name=<%s>, ref=<%s> | loaded tool from spec", tool_name, ref)
+                except Exception as e:
+                    logger.warning(
+                        "tool_name=<%s>, ref=<%s> | failed to load tool from spec: %s",
+                        tool_name,
+                        ref,
+                        e
+                    )
+            else:
+                logger.warning(
+                    "tool_name=<%s> | no reference available, cannot load tool from spec",
+                    tool_name
+                )
+
+        return registry
 
     class NewToolDict(TypedDict):
         """Dictionary type for adding or updating a tool in the configuration.

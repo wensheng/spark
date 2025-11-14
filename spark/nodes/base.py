@@ -229,32 +229,65 @@ class BaseNode(ABC):
             raise RuntimeError('Event bus is not attached to this node')
         return await self.event_bus.subscribe(topic)
 
-    def on(self, condition: Callable | str | None = None, **equals: Any) -> 'Edge':
-        """Create an edge with no to_node."""
-        if condition is None and not equals:
-            raise ValueError("Either condition or equals must be provided")
+    def on(self, condition: Optional[Union[str, 'EdgeCondition']] = None, expr: Optional[str] = None, priority: int = 0, **equals: Any) -> 'Edge':
+        """Create a conditional edge without specifying the target node yet.
 
+        Args:
+            condition: Expression string or EdgeCondition (no callables allowed)
+            expr: Shortcut for expr-based condition
+            priority: Edge priority (higher = evaluated first, default 0)
+            **equals: Shortcut for equals-based condition (e.g., action='search')
+
+        Returns:
+            Edge with condition set, to be connected with >> operator
+
+        Examples:
+            node.on(expr="$.outputs.score > 0.5") >> high_node
+            node.on(action='search') >> search_node
+            node.on(EdgeCondition(expr="$.outputs.ready")) >> process_node
+
+        Note:
+            Lambda/callable conditions are NOT supported for spec compatibility.
+            Use expr or equals instead.
+
+        Raises:
+            TypeError: If a callable is provided
+            ValueError: If no condition is provided
+        """
+        # If equals kwargs provided, use them
+        if equals:
+            edge = Edge(from_node=self, condition=EdgeCondition(equals=dict(equals)), priority=priority)
+            return edge
+
+        # If expr provided, use it
+        if expr:
+            edge = Edge(from_node=self, condition=EdgeCondition(expr=expr), priority=priority)
+            return edge
+
+        # Handle condition parameter
         if condition is None:
-
-            # def _predicate(node: "BaseNode") -> bool:
-            #     for k, v in equals.items():
-            #         if node.outputs and node.outputs.content and node.outputs.content.get(k) == v:
-            #             return True
-            #     return False
-
-            # condition = _predicate
-            # edge = Edge(
-            #     from_node=self,
-            #     condition=EdgeCondition(condition=condition, equals=dict(equals)),
-            # )
-            edge = Edge(from_node=self, condition=EdgeCondition(equals=dict(equals)))
+            # Allow no condition if equals or expr will be provided later
+            # This supports: edge = node.on(); edge >> next_node
+            edge = Edge(from_node=self, condition=EdgeCondition(), priority=priority)
             return edge
 
         if isinstance(condition, str):
-            condi = EdgeCondition(expr=condition)
-        else:
-            condi = EdgeCondition(func=condition)
-        return Edge(from_node=self, condition=condi)
+            edge = Edge(from_node=self, condition=EdgeCondition(expr=condition), priority=priority)
+            return edge
+
+        if isinstance(condition, EdgeCondition):
+            edge = Edge(from_node=self, condition=condition, priority=priority)
+            return edge
+
+        # Reject callables
+        if callable(condition):
+            raise TypeError(
+                "Lambda/callable conditions are not supported for spec compatibility. "
+                "Use expr='...' or equals={...} instead.\n"
+                "Example: node.on(expr='$.outputs.score > 0.5') >> next_node"
+            )
+
+        raise TypeError(f"Invalid condition type: {type(condition)}")
 
     def __rshift__(self, right: Union['BaseNode', 'Chain']) -> 'Chain':
         """Overload >> operator to add a next node / edge / chain."""
@@ -269,15 +302,44 @@ class BaseNode(ABC):
         return Chain([self, right])
 
     def goto(
-        self, next_node: 'BaseNode', condition: Optional[Union['EdgeCondition', Callable[['BaseNode'], bool]]] = None
+        self, next_node: 'BaseNode', condition: Optional[Union['EdgeCondition', str]] = None
     ) -> 'Edge':
-        """Helper method to add a follower node."""
+        """Create an edge to the next node with an optional condition.
+
+        Args:
+            next_node: The target node
+            condition: EdgeCondition or expression string (no callables)
+
+        Returns:
+            Edge connecting this node to next_node
+
+        Examples:
+            node.goto(next_node)  # Unconditional
+            node.goto(next_node, EdgeCondition(expr="$.outputs.score > 0.5"))
+            node.goto(next_node, condition="$.outputs.score > 0.5")  # Shorthand
+
+        Note:
+            Lambda/callable conditions are NOT supported for spec compatibility.
+            Use EdgeCondition or expr string instead.
+
+        Raises:
+            TypeError: If a callable is provided
+        """
         if condition is None:
             edge = Edge(from_node=self, condition=EdgeCondition(), to_node=next_node)
         elif isinstance(condition, EdgeCondition):
             edge = Edge(from_node=self, condition=condition, to_node=next_node)
+        elif isinstance(condition, str):
+            edge = Edge(from_node=self, condition=EdgeCondition(expr=condition), to_node=next_node)
+        elif callable(condition):
+            raise TypeError(
+                "Lambda/callable conditions are not supported for spec compatibility. "
+                "Use EdgeCondition or expr string instead.\n"
+                "Example: node.goto(next_node, EdgeCondition(expr='$.outputs.score > 0.5'))"
+            )
         else:
-            edge = Edge(from_node=self, condition=EdgeCondition(func=condition), to_node=next_node)
+            raise TypeError(f"Invalid condition type: {type(condition)}")
+
         return edge
 
 
@@ -307,22 +369,40 @@ class Chain:
 
 @dataclass
 class EdgeCondition:
-    """A condition that determines the next node to run."""
+    """A condition that determines the next node to run.
 
-    func: Callable[[BaseNode], bool] | None = None
+    EdgeCondition supports two types of conditions for spec-compatible routing:
+    - expr: Expression string (e.g., "$.outputs.score > 0.5")
+    - equals: Dictionary for exact matching (e.g., {'action': 'search'})
+
+    Note: Lambda/callable conditions are NOT supported for spec compatibility.
+    Use expr or equals instead.
+
+    Examples:
+        # Expression-based
+        EdgeCondition(expr="$.outputs.score > 0.5")
+        EdgeCondition(expr="$.outputs.status == 'ready' and $.outputs.count >= 10")
+
+        # Equality-based
+        EdgeCondition(equals={'action': 'search'})
+        EdgeCondition(equals={'status': 'ready', 'count': 10})
+    """
+
     expr: str | None = None
     equals: dict[str, Any] | None = None
 
-    def check(self, node: BaseNode) -> bool:
-        """Execute the condition check."""
-        # Callable takes precedence
-        if self.func is not None:
-            try:
-                return self.func(node)
-            except Exception as e:
-                print(f"Error in edge condition: {self.func}: {e}")
-                return False
+    def __post_init__(self):
+        """Validate that at least one condition type is provided."""
+        if self.expr is None and self.equals is None:
+            # Allow no condition (always True)
+            pass
 
+    def check(self, node: BaseNode) -> bool:
+        """Execute the condition check.
+
+        Returns:
+            True if condition passes, False otherwise
+        """
         # equals shortcut on node.outputs
         # All key/value pairs must match (AND logic, not OR)
         if self.equals:
@@ -341,13 +421,14 @@ class EdgeCondition:
             except Exception:
                 return False
 
-        # Minimal expr evaluator
+        # Expression evaluator
         if self.expr:
             try:
                 return self._eval_expr(node, self.expr)
             except Exception:
                 return False
 
+        # No condition means always True
         return True
 
     def _eval_expr(self, node: BaseNode, expr: str) -> bool:

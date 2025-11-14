@@ -583,3 +583,40 @@ class OpenAIModel(Model):
         )
 
         return result
+
+    @classmethod
+    def from_spec_dict(cls, spec: dict[str, Any]) -> "OpenAIModel":
+        """Deserialize OpenAIModel from spec dictionary.
+
+        Args:
+            spec: Dictionary containing model configuration
+
+        Returns:
+            OpenAIModel instance
+
+        Example:
+            spec = {
+                "type": "OpenAIModel",
+                "model_id": "gpt-4o-mini",
+                "config": {
+                    "model_id": "gpt-4o-mini",
+                    "params": {"temperature": 0.7}
+                }
+            }
+            model = OpenAIModel.from_spec_dict(spec)
+        """
+        config = spec.get("config", {})
+
+        # Extract known config fields
+        model_config = {}
+        if "model_id" in config:
+            model_config["model_id"] = config["model_id"]
+        if "params" in config:
+            model_config["params"] = config["params"]
+        if "enable_cache" in config:
+            model_config["enable_cache"] = config["enable_cache"]
+        if "cache_ttl_seconds" in config:
+            model_config["cache_ttl_seconds"] = config["cache_ttl_seconds"]
+
+        # Client args not typically serialized, use defaults
+        return cls(**model_config)

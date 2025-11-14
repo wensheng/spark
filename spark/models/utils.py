@@ -13,6 +13,10 @@ def get_model_from_id(model_id: str, **kwargs) -> Model:
     """
     get model instance from model_id
     """
+    if model_id == 'echo':
+        from spark.models.echo import EchoModel
+        return EchoModel(model_id=model_id, **kwargs)
+
     model_id_no_prefix = model_id.split("/", 1)[1]  # Extract the part after the prefix
     if model_id.startswith("openai/"):
         from spark.models.openai import OpenAIModel

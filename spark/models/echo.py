@@ -31,9 +31,12 @@ class EchoModel(Model):
         pass
 
     @override
-    def get_config(self) -> None:
+    def get_config(self) -> dict[str, Any]:
         """Get the config"""
-        pass
+        return {
+            "model_id": "echo",
+            "streaming": self.streaming
+        }
 
     @override
     async def get_text(
@@ -63,3 +66,21 @@ class EchoModel(Model):
             "role": "assistant",
             "content": json.dumps(output_model(**{'role': messages[0]['role'], 'content': messages[0]['content']})),
         }
+
+    @classmethod
+    def from_spec_dict(cls, spec: dict[str, Any]) -> "EchoModel":
+        """Deserialize EchoModel from spec dictionary.
+
+        Args:
+            spec: Dictionary containing model configuration
+
+        Returns:
+            EchoModel instance
+
+        Example:
+            spec = {"type": "EchoModel", "config": {"streaming": False}}
+            model = EchoModel.from_spec_dict(spec)
+        """
+        config = spec.get("config", {})
+        streaming = config.get("streaming", False)
+        return cls(streaming=streaming)
