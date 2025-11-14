@@ -7,6 +7,7 @@ from spark.nodes.base import BaseNode, EdgeCondition
 from spark.nodes.nodes import Node
 from spark.nodes.channels import ChannelMessage
 from spark.nodes.rpc import RpcNode, MethodNotFoundError, InvalidParamsError
+from spark.nodes.rpc_client import RemoteRpcProxyNode
 
 __all__ = [
     "BaseNode",
@@ -18,5 +19,6 @@ __all__ = [
     "Node",
     "NodeState",
     "RpcNode",
+    "RemoteRpcProxyNode",
     "default_node_state",
 ]
