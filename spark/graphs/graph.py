@@ -15,6 +15,17 @@ from spark.nodes.channels import ChannelMessage, ForwardingChannel, BaseChannel
 from spark.graphs.event_bus import GraphEventBus
 from spark.graphs.graph_state import GraphState
 
+# Import telemetry (optional)
+try:
+    from spark.telemetry import TelemetryManager, TelemetryConfig, EventType, SpanKind, SpanStatus
+    from spark.telemetry.instrumentation import attach_telemetry_to_node
+    TELEMETRY_AVAILABLE = True
+except ImportError:
+    TELEMETRY_AVAILABLE = False
+    TelemetryManager = None  # type: ignore
+    TelemetryConfig = None  # type: ignore
+    SpanStatus = None  # type: ignore
+
 
 class Graph(BaseGraph):
     """
@@ -37,6 +48,14 @@ class Graph(BaseGraph):
         initial_state = kwargs.get('initial_state')
         self.state = GraphState(initial_state)
         self._state_enabled: bool = kwargs.get('enable_graph_state', True)
+
+        # Initialize telemetry
+        self._telemetry_config: Optional[Any] = kwargs.get('telemetry_config')
+        self._telemetry_manager: Optional[Any] = None
+        self._telemetry_enabled = False
+        if TELEMETRY_AVAILABLE and self._telemetry_config is not None:
+            self._telemetry_manager = TelemetryManager.get_instance(self._telemetry_config)
+            self._telemetry_enabled = self._telemetry_config.enabled
 
         self._attach_event_bus_to_nodes()
 
@@ -91,6 +110,31 @@ class Graph(BaseGraph):
 
         self._prepare_runtime()
 
+        # Start telemetry trace if enabled
+        trace = None
+        if self._telemetry_enabled and self._telemetry_manager:
+            trace = self._telemetry_manager.start_trace(
+                name="graph_run",
+                attributes={
+                    'graph.type': self.__class__.__name__,
+                    'graph.nodes_count': len(self.nodes),
+                    'task.type': task.type.value if hasattr(task.type, 'value') else str(task.type),
+                }
+            )
+            # Record graph started event
+            self._telemetry_manager.record_event(
+                type=EventType.GRAPH_STARTED,
+                name="Graph execution started",
+                trace_id=trace.trace_id,
+                attributes={'graph_type': self.__class__.__name__}
+            )
+            # Attach telemetry context to all nodes
+            telemetry_context = self._telemetry_manager.create_context(trace.trace_id)
+            for node in self.nodes:
+                setattr(node, '_telemetry_context', telemetry_context)
+                if self._telemetry_config.auto_instrument_nodes:
+                    attach_telemetry_to_node(node, self._telemetry_manager)
+
         # Configure state mode based on task type
         if task.type == TaskType.LONG_RUNNING:
             self.state.enable_concurrent_mode()
@@ -120,6 +164,17 @@ class Graph(BaseGraph):
             # Start all nodes concurrently as long-running workers
             await asyncio.gather(*jobs)
             self._running_nodes = None  # Clear after completion
+
+            # End telemetry trace for LONG_RUNNING
+            if trace and self._telemetry_manager:
+                self._telemetry_manager.record_event(
+                    type=EventType.GRAPH_FINISHED,
+                    name="Graph execution finished",
+                    trace_id=trace.trace_id,
+                    attributes={'task_type': 'LONG_RUNNING'}
+                )
+                self._telemetry_manager.end_trace(trace.trace_id)
+
             return self.end_node.outputs if self.end_node else None
 
         # For regular tasks, track nodes for timeout handling
@@ -166,10 +221,35 @@ class Graph(BaseGraph):
 
             if last_output is None:
                 if self.end_node and isinstance(self.end_node.outputs, NodeMessage):
-                    return self.end_node.outputs
-                if isinstance(self.start.outputs, NodeMessage):
-                    return self.start.outputs
+                    last_output = self.end_node.outputs
+                elif isinstance(self.start.outputs, NodeMessage):
+                    last_output = self.start.outputs
+
+            # End telemetry trace for regular tasks
+            if trace and self._telemetry_manager:
+                self._telemetry_manager.record_event(
+                    type=EventType.GRAPH_FINISHED,
+                    name="Graph execution finished",
+                    trace_id=trace.trace_id,
+                    attributes={'task_type': 'REGULAR'}
+                )
+                self._telemetry_manager.end_trace(trace.trace_id)
+
             return last_output
+        except Exception as e:
+            # Record graph failure
+            if trace and self._telemetry_manager:
+                self._telemetry_manager.record_event(
+                    type=EventType.GRAPH_FAILED,
+                    name="Graph execution failed",
+                    trace_id=trace.trace_id,
+                    attributes={
+                        'error': str(e),
+                        'error_type': type(e).__name__
+                    }
+                )
+                self._telemetry_manager.end_trace(trace.trace_id, status=SpanStatus.ERROR)
+            raise
         finally:
             self._running_nodes = None  # Clear after completion
 
