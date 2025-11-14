@@ -4,11 +4,11 @@ Spark is an Python AI Development Kit(ADK).
 
 ## Get started with Spark
 
-- To install, `pip install spark`
+    pip install spark
 
 ## Running examples
 
-See [examples\README.md](examples/README.md) for more details.
+See [examples/README.md](examples/README.md) for more details.
 
 If you already installed spark with (pip install spark), you can run examples directly:
 
