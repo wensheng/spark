@@ -199,6 +199,27 @@ class TestThreadSafeGraphState:
         assert final_count >= 100  # But at least one task completed
 
     @pytest.mark.asyncio
+    async def test_lock_coordinates_updates(self):
+        state = GraphState({'counter': 0})
+
+        async def increment_with_lock():
+            async with state.lock('counter'):
+                value = await state.get('counter', 0)
+                await asyncio.sleep(0)
+                await state.set('counter', value + 1)
+
+        await asyncio.gather(*(increment_with_lock() for _ in range(10)))
+        assert await state.get('counter') == 10
+        stats = state.get_lock_stats()
+        assert 'counter' in stats
+        assert stats['counter']['wait_count'] >= 10
+
+    def test_describe_backend_reports_serializer(self):
+        state = GraphState()
+        info = state.describe_backend()
+        assert info['serializer'] == 'json'
+
+    @pytest.mark.asyncio
     async def test_concurrent_transaction_atomicity(self):
         """Test that transactions are atomic in concurrent mode."""
         state = GraphState({'x': 0, 'y': 0})

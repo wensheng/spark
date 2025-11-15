@@ -697,8 +697,8 @@ class StateBackendConfigSpec(BaseModel):
     options: dict[str, Any] = Field(default_factory=dict)
     """Backend-specific options (paths, DSNs, etc.)."""
 
-    serializer: Literal['json'] = 'json'
-    """Serializer identifier (future extension)."""
+    serializer: str = 'json'
+    """Serializer identifier (json, pickle, or custom registry entry)."""
 
     encryption: Optional[str] = None
     """Optional encryption reference."""

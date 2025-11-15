@@ -282,6 +282,7 @@ async def test_graph_to_spec_with_graph_state():
     assert graph_spec.graph_state.initial_state['counter'] == 42
     assert graph_spec.graph_state.backend is not None
     assert graph_spec.graph_state.backend.name == 'memory'
+    assert graph_spec.graph_state.backend.serializer == 'json'
     assert graph_spec.graph_state.checkpointing is None
 
 

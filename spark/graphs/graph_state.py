@@ -120,6 +120,18 @@ class GraphState:
             yield state_dict
         self._validate_state(self._backend.snapshot())
 
+    @asynccontextmanager
+    async def lock(self, name: str = 'global'):
+        """Acquire a named lock shared across GraphState users."""
+
+        async with self._backend.acquire_lock(name) as metadata:
+            yield metadata
+
+    def get_lock_stats(self) -> dict[str, Any]:
+        """Return lock wait statistics from the backend."""
+
+        return self._backend.lock_stats()
+
     def get_snapshot(self) -> dict[str, Any]:
         """Return a shallow copy of current state (non-blocking)."""
         return self._backend.snapshot()

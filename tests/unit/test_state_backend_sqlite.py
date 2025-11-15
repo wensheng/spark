@@ -42,3 +42,17 @@ async def test_sqlite_backend_transaction(tmp_path):
     assert await state.get('a') == 5
     assert await state.get('b') is None
     assert await state.get('c') == 9
+
+
+@pytest.mark.asyncio
+async def test_sqlite_backend_pickle_serializer(tmp_path):
+    backend = SQLiteStateBackend(tmp_path / "graph_state.db", serializer='pickle')
+    state = GraphState(backend=backend)
+    await state.initialize()
+    await state.set('payload', {'numbers': [1, 2, 3], 'active': True})
+
+    backend2 = SQLiteStateBackend(tmp_path / "graph_state.db", serializer='pickle')
+    state2 = GraphState(backend=backend2)
+    await state2.initialize()
+
+    assert await state2.get('payload') == {'numbers': [1, 2, 3], 'active': True}

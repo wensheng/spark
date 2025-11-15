@@ -447,6 +447,7 @@ class SpecLoader:
                     state_backend_instance = create_state_backend(
                         backend_spec.name,
                         options=backend_spec.options,
+                        serializer=backend_spec.serializer,
                     )
                 schema_spec = graph_spec.graph_state.schema
                 if schema_spec and schema_spec.module:

@@ -11,6 +11,7 @@ from spark.graphs.tasks import (
 )
 from spark.graphs.graph_state import GraphState
 from spark.graphs.state_backend import StateBackend, InMemoryStateBackend, SQLiteStateBackend, JSONFileStateBackend
+from spark.graphs.serializers import StateSerializer, register_state_serializer
 from spark.graphs.mission_control import (
     MissionControl,
     MissionPlan,
@@ -51,6 +52,8 @@ __all__ = [
     "InMemoryStateBackend",
     "SQLiteStateBackend",
     "JSONFileStateBackend",
+    "StateSerializer",
+    "register_state_serializer",
     "GraphCheckpoint",
     "GraphCheckpointConfig",
     "MissionStateModel",

@@ -4,13 +4,15 @@ from __future__ import annotations
 
 import asyncio
 import inspect
-import json
 import logging
 import sqlite3
+import time
 from abc import ABC, abstractmethod
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, AsyncIterator, Awaitable, Callable, ClassVar
+
+from spark.graphs.serializers import StateSerializer, ensure_state_serializer
 
 logger = logging.getLogger(__name__)
 
@@ -38,9 +40,17 @@ class StateBackend(ABC):
 
     backend_name: ClassVar[str] = 'custom'
 
-    def __init__(self, initial_state: dict[str, Any] | None = None) -> None:
+    def __init__(
+        self,
+        initial_state: dict[str, Any] | None = None,
+        *,
+        serializer: StateSerializer | str | None = None,
+    ) -> None:
         self._initial_state = dict(initial_state or {})
         self._watchers: dict[str, list[WatcherCallback]] = {}
+        self._serializer: StateSerializer = ensure_state_serializer(serializer)
+        self._locks: dict[str, asyncio.Lock] = {}
+        self._lock_stats: dict[str, dict[str, float]] = {}
 
     async def initialize(self) -> None:
         """Optional async initialization hook."""
@@ -83,9 +93,34 @@ class StateBackend(ABC):
     async def transaction(self) -> AsyncIterator[dict[str, Any]]:
         """Context manager for atomic updates."""
 
+    @asynccontextmanager
+    async def acquire_lock(self, name: str = 'global') -> AsyncIterator[dict[str, Any]]:
+        """Acquire an async lock for coordinating GraphState access."""
+
+        lock = self._locks.setdefault(name, asyncio.Lock())
+        start = time.perf_counter()
+        await lock.acquire()
+        waited = time.perf_counter() - start
+        stats = self._lock_stats.setdefault(
+            name,
+            {'wait_count': 0, 'total_wait_seconds': 0.0, 'last_wait_seconds': 0.0},
+        )
+        stats['wait_count'] += 1
+        stats['total_wait_seconds'] += waited
+        stats['last_wait_seconds'] = waited
+        try:
+            yield {'name': name, 'waited_seconds': waited}
+        finally:
+            lock.release()
+
     def describe(self) -> dict[str, Any]:
         """Return metadata describing backend configuration."""
-        return {'name': self.backend_name, 'config': {}}
+        return {
+            'name': self.backend_name,
+            'config': {},
+            'serializer': self._serializer.name,
+            'locks': self.lock_stats(),
+        }
 
     def snapshot(self) -> dict[str, Any]:
         """Return a shallow copy of the underlying state."""
@@ -130,14 +165,29 @@ class StateBackend(ABC):
             except Exception:
                 logger.exception("State watcher failed for key=%s callback=%s", key, callback)
 
+    def _serialize_value(self, value: Any) -> bytes:
+        return self._serializer.dumps(value)
+
+    def _deserialize_value(self, payload: bytes | str) -> Any:
+        data = payload.encode('utf-8') if isinstance(payload, str) else payload
+        return self._serializer.loads(data)
+
+    def lock_stats(self) -> dict[str, dict[str, float]]:
+        return {name: dict(stats) for name, stats in self._lock_stats.items()}
+
 
 class InMemoryStateBackend(StateBackend):
     """Async-lock backed in-memory store used as default GraphState backend."""
 
     backend_name = 'memory'
 
-    def __init__(self, initial_state: dict[str, Any] | None = None) -> None:
-        super().__init__(initial_state)
+    def __init__(
+        self,
+        initial_state: dict[str, Any] | None = None,
+        *,
+        serializer: StateSerializer | str | None = None,
+    ) -> None:
+        super().__init__(initial_state, serializer=serializer)
         self._state: dict[str, Any] = dict(self._initial_state)
         self._lock = asyncio.Lock()
         self._concurrent_mode = False
@@ -243,7 +293,9 @@ class InMemoryStateBackend(StateBackend):
         self._state.clear()
 
     def describe(self) -> dict[str, Any]:
-        return {'name': self.backend_name, 'config': {'concurrent': self._concurrent_mode}}
+        data = super().describe()
+        data['config'] = {'concurrent': self._concurrent_mode}
+        return data
 
 
 class SQLiteStateBackend(StateBackend):
@@ -251,8 +303,15 @@ class SQLiteStateBackend(StateBackend):
 
     backend_name = 'sqlite'
 
-    def __init__(self, db_path: str | Path, *, table_name: str = "graph_state", initial_state: dict[str, Any] | None = None) -> None:
-        super().__init__(initial_state)
+    def __init__(
+        self,
+        db_path: str | Path,
+        *,
+        table_name: str = "graph_state",
+        initial_state: dict[str, Any] | None = None,
+        serializer: StateSerializer | str | None = None,
+    ) -> None:
+        super().__init__(initial_state, serializer=serializer)
         self.db_path = str(db_path)
         self.table_name = table_name
         self._conn: sqlite3.Connection | None = None
@@ -264,13 +323,15 @@ class SQLiteStateBackend(StateBackend):
             return
         self._conn = sqlite3.connect(self.db_path, check_same_thread=False)
         self._conn.execute(
-            f"CREATE TABLE IF NOT EXISTS {self.table_name} (key TEXT PRIMARY KEY, value TEXT NOT NULL)"
+            f"CREATE TABLE IF NOT EXISTS {self.table_name} (key TEXT PRIMARY KEY, value BLOB NOT NULL)"
         )
         self._conn.commit()
         rows = self._conn.execute(f"SELECT key, value FROM {self.table_name}").fetchall()
         for key, value in rows:
-            if key not in self._state_cache:
-                self._state_cache[key] = json.loads(value)
+            if key in self._state_cache:
+                continue
+            payload = value if isinstance(value, (bytes, bytearray)) else str(value).encode('utf-8')
+            self._state_cache[key] = self._deserialize_value(payload)
         if self._initial_state:
             await self.update(self._initial_state)
 
@@ -285,10 +346,11 @@ class SQLiteStateBackend(StateBackend):
         def _write():
             cur = conn.cursor()
             for key, value in items.items():
+                payload = sqlite3.Binary(self._serialize_value(value))
                 cur.execute(
                     f"INSERT INTO {self.table_name}(key, value) VALUES(?, ?) "
                     f"ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-                    (key, json.dumps(value)),
+                    (key, payload),
                 )
             conn.commit()
 
@@ -375,7 +437,7 @@ class SQLiteStateBackend(StateBackend):
             cur.execute(f"DELETE FROM {self.table_name}")
             cur.executemany(
                 f"INSERT INTO {self.table_name}(key, value) VALUES(?, ?)",
-                ((key, json.dumps(value)) for key, value in new_state.items()),
+                ((key, sqlite3.Binary(self._serialize_value(value))) for key, value in new_state.items()),
             )
             conn.commit()
 
@@ -396,7 +458,9 @@ class SQLiteStateBackend(StateBackend):
         self._conn.commit()
 
     def describe(self) -> dict[str, Any]:
-        return {'name': self.backend_name, 'config': {'db_path': self.db_path, 'table': self.table_name}}
+        data = super().describe()
+        data['config'] = {'db_path': self.db_path, 'table': self.table_name}
+        return data
 
 
 class JSONFileStateBackend(StateBackend):
@@ -404,8 +468,14 @@ class JSONFileStateBackend(StateBackend):
 
     backend_name = 'file'
 
-    def __init__(self, path: str | Path, initial_state: dict[str, Any] | None = None) -> None:
-        super().__init__(initial_state)
+    def __init__(
+        self,
+        path: str | Path,
+        initial_state: dict[str, Any] | None = None,
+        *,
+        serializer: StateSerializer | str | None = None,
+    ) -> None:
+        super().__init__(initial_state, serializer=serializer)
         self.path = Path(path)
         self._lock = asyncio.Lock()
         self._state_cache: dict[str, Any] = {}
@@ -413,9 +483,11 @@ class JSONFileStateBackend(StateBackend):
     async def initialize(self) -> None:
         if self.path.exists():
             try:
-                contents = json.loads(self.path.read_text(encoding='utf-8') or "{}")
-                if isinstance(contents, dict):
-                    self._state_cache = contents
+                data = self.path.read_bytes()
+                if data:
+                    contents = self._deserialize_value(data)
+                    if isinstance(contents, dict):
+                        self._state_cache = contents
             except Exception:
                 logger.exception("Failed to load state file %s", self.path)
         if self._initial_state:
@@ -426,7 +498,11 @@ class JSONFileStateBackend(StateBackend):
         await asyncio.to_thread(self.path.parent.mkdir, parents=True, exist_ok=True)
 
         def _write():
-            self.path.write_text(json.dumps(self._state_cache, ensure_ascii=False, indent=2), encoding='utf-8')
+            payload = self._serialize_value(self._state_cache)
+            if self._serializer.binary:
+                self.path.write_bytes(payload)
+            else:
+                self.path.write_text(payload.decode('utf-8'), encoding='utf-8')
 
         await asyncio.to_thread(_write)
 
@@ -506,7 +582,9 @@ class JSONFileStateBackend(StateBackend):
             return
 
     def describe(self) -> dict[str, Any]:
-        return {'name': self.backend_name, 'config': {'path': str(self.path)}}
+        data = super().describe()
+        data['config'] = {'path': str(self.path)}
+        return data
 
 
 _BACKEND_REGISTRY: dict[str, type[StateBackend]] = {}
@@ -527,12 +605,14 @@ def create_state_backend(
     *,
     options: dict[str, Any] | None = None,
     initial_state: dict[str, Any] | None = None,
+    serializer: StateSerializer | str | None = None,
 ) -> StateBackend:
     """Instantiate backend based on registry entry."""
     backend_cls = _BACKEND_REGISTRY.get(name)
     if backend_cls is None:
         raise ValueError(f"Unknown state backend '{name}'. Registered: {list(_BACKEND_REGISTRY)}")
     options = dict(options or {})
+    serializer = serializer or options.pop('serializer', None)
     sig = inspect.signature(backend_cls.__init__)
     valid_options: dict[str, Any] = {}
     for key, value in options.items():
@@ -540,7 +620,7 @@ def create_state_backend(
             valid_options[key] = value
         else:
             logger.debug("Ignoring unsupported backend option '%s' for %s", key, name)
-    return backend_cls(initial_state=initial_state, **valid_options)
+    return backend_cls(initial_state=initial_state, serializer=serializer, **valid_options)
 
 
 register_state_backend('memory', InMemoryStateBackend)

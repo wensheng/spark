@@ -652,6 +652,7 @@ def graph_to_spec(graph: BaseGraph, *, spark_version: str = '2.0') -> GraphSpec:
             backend_spec = StateBackendConfigSpec(
                 name=backend_info.get('name', 'memory'),
                 options=backend_info.get('config', {}),
+                serializer=backend_info.get('serializer', 'json'),
             )
             schema_info = graph_state.describe_schema()
             schema_spec = MissionStateSchemaSpec(**schema_info) if schema_info else None
