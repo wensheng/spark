@@ -63,6 +63,19 @@ def _resolve_schema(target: str) -> Type[MissionStateModel]:
     raise TypeError(f"Target '{target}' is not a MissionStateModel subclass")
 
 
+def _extract_schema_fields(schema_cls: Type[MissionStateModel]) -> dict[str, dict[str, Any]]:
+    fields: dict[str, dict[str, Any]] = {}
+    for name, fld in schema_cls.model_fields.items():
+        annotation = fld.annotation
+        type_name = getattr(annotation, '__name__', str(annotation))
+        fields[name] = {
+            'type': type_name,
+            'required': fld.is_required(),
+            'default': None if fld.is_required() else fld.default,
+        }
+    return fields
+
+
 # ==============================================================================
 # Existing Commands
 # ==============================================================================
@@ -592,6 +605,68 @@ def cmd_plan_render(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_schema_diff(args: argparse.Namespace) -> int:
+    """Compare two MissionStateModel definitions."""
+
+    base_cls = _resolve_schema(args.old)
+    new_cls = _resolve_schema(args.new)
+
+    base_fields = _extract_schema_fields(base_cls)
+    new_fields = _extract_schema_fields(new_cls)
+
+    added: list[dict[str, Any]] = []
+    removed: list[dict[str, Any]] = []
+    changed: list[dict[str, Any]] = []
+
+    for name, meta in new_fields.items():
+        if name not in base_fields:
+            added.append({'field': name, **meta})
+        else:
+            old_meta = base_fields[name]
+            if old_meta != meta:
+                changed.append({'field': name, 'old': old_meta, 'new': meta})
+
+    for name, meta in base_fields.items():
+        if name not in new_fields:
+            removed.append({'field': name, **meta})
+
+    report = {
+        'old': base_cls.schema_metadata(),
+        'new': new_cls.schema_metadata(),
+        'added': added,
+        'removed': removed,
+        'changed': changed,
+    }
+
+    if args.format == 'json':
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+        return 0
+
+    def _format_field(entry: dict[str, Any]) -> str:
+        return f"{entry['field']} (type={entry['type']}, required={entry['required']}, default={entry['default']})"
+
+    if added:
+        print('Added fields:')
+        for entry in added:
+            print(f"  + {_format_field(entry)}")
+    if removed:
+        print('Removed fields:')
+        for entry in removed:
+            print(f"  - {_format_field(entry)}")
+    if changed:
+        print('Changed fields:')
+        for entry in changed:
+            old_meta = entry['old']
+            new_meta = entry['new']
+            print(
+                f"  * {entry['field']}: type {old_meta['type']} -> {new_meta['type']}, "
+                f"required {old_meta['required']} -> {new_meta['required']}"
+            )
+    if not any((added, removed, changed)):
+        print('No schema differences detected.')
+    return 0
+
+
 # ==============================================================================
 # CLI Parser
 # ==============================================================================
@@ -697,6 +772,13 @@ def build_parser() -> argparse.ArgumentParser:
     psm.add_argument('input', help='Input JSON state file to migrate')
     psm.add_argument('-o', '--output', help='Optional output file (stdout if omitted)')
     psm.set_defaults(func=cmd_schema_migrate)
+
+    # Schema diff command
+    psd = sub.add_parser('schema-diff', help='Diff two MissionStateModel definitions')
+    psd.add_argument('old', help="Existing schema target 'module:Class'")
+    psd.add_argument('new', help="New schema target 'module:Class'")
+    psd.add_argument('--format', choices=['text', 'json'], default='text', help='Diff output format')
+    psd.set_defaults(func=cmd_schema_diff)
 
     # Plan render command
     ppr = sub.add_parser('plan-render', help='Render a mission plan snapshot to text')

@@ -47,3 +47,28 @@ def test_schema_migrate(tmp_path):
     assert rc == 0
     payload = json.loads(output_path.read_text(encoding='utf-8'))
     assert payload['__schema_version__'] == '1.0'
+
+
+def test_schema_diff_text(capsys):
+    args = Namespace(
+        old='tests.unit.schema_samples:DemoState',
+        new='tests.unit.schema_samples:DemoStateV2',
+        format='text',
+    )
+    rc = spec_cli.cmd_schema_diff(args)
+    captured = capsys.readouterr()
+    assert rc == 0
+    assert 'Added fields' in captured.out
+    assert 'status' in captured.out
+
+
+def test_schema_diff_json(capsys):
+    args = Namespace(
+        old='tests.unit.schema_samples:DemoState',
+        new='tests.unit.schema_samples:DemoStateV2',
+        format='json',
+    )
+    rc = spec_cli.cmd_schema_diff(args)
+    captured = capsys.readouterr()
+    assert rc == 0
+    assert '"added"' in captured.out
