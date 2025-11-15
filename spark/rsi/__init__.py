@@ -19,9 +19,18 @@ Phase 2 Components:
 Phase 3 Components:
 - HypothesisTesterNode: Automated A/B testing of hypotheses with statistical analysis
 
-Phase 4 Components (NEW):
+Phase 4 Components:
 - ChangeApplicator: Apply hypothesis changes to graph specifications
 - DeploymentControllerNode: Safe deployment with monitoring and rollback
+
+Phase 5 Components:
+- PatternExtractor: Learn from historical improvement attempts
+- RSIMetaGraph: Complete autonomous RSI workflow orchestration
+
+Phase 6 Components (NEW - in progress):
+- NodeReplacementAnalyzer: Identify node replacement opportunities
+- EdgeOptimizer: Optimize graph edges (shortcuts, redundancy removal)
+- ParallelizationAnalyzer: Convert sequential to parallel execution
 
 Usage:
     from spark.rsi import (
@@ -99,7 +108,12 @@ from spark.rsi.rsi_meta_graph import (
     TestGateNode
 )
 
-__version__ = "0.5.0"  # Phase 5 (in progress)
+# Phase 6 exports
+from spark.rsi.node_replacement import NodeReplacementAnalyzer
+from spark.rsi.edge_optimizer import EdgeOptimizer
+from spark.rsi.parallelization_analyzer import ParallelizationAnalyzer
+
+__version__ = "0.6.0"  # Phase 6 (in progress)
 
 __all__ = [
     # Phase 1
@@ -125,4 +139,8 @@ __all__ = [
     "AnalysisGateNode",
     "ValidationGateNode",
     "TestGateNode",
+    # Phase 6
+    "NodeReplacementAnalyzer",
+    "EdgeOptimizer",
+    "ParallelizationAnalyzer",
 ]

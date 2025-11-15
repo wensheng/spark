@@ -275,3 +275,106 @@ class TestResult:
     def __post_init__(self):
         if self.started_at is None:
             self.started_at = datetime.now()
+
+
+# ============================================================================
+# Phase 6: Structural Change Types
+# ============================================================================
+
+@dataclass
+class NodeReplacementCandidate:
+    """A candidate node for replacement."""
+    replacement_node_type: str
+    replacement_node_name: str
+    compatibility_score: float  # 0.0 to 1.0
+    expected_improvement: Optional[ExpectedImprovement] = None
+    compatibility_notes: List[str] = field(default_factory=list)
+    risk_factors: List[str] = field(default_factory=list)
+
+
+@dataclass
+class CompatibilityReport:
+    """Report on replacement node compatibility."""
+    is_compatible: bool
+    compatibility_score: float
+    input_compatibility: bool
+    output_compatibility: bool
+    interface_issues: List[str] = field(default_factory=list)
+    warnings: List[str] = field(default_factory=list)
+    recommendations: List[str] = field(default_factory=list)
+
+
+@dataclass
+class ImpactEstimate:
+    """Estimated impact of a change."""
+    latency_impact: float  # Percentage change (negative is improvement)
+    cost_impact: float  # Percentage change
+    reliability_impact: float  # Percentage change
+    complexity_delta: int  # Change in graph complexity
+    confidence: float  # 0.0 to 1.0
+    assumptions: List[str] = field(default_factory=list)
+
+
+@dataclass
+class RedundantEdge:
+    """An edge that is rarely or never traversed."""
+    from_node: str
+    to_node: str
+    edge_condition: Optional[str] = None
+    traversal_count: int = 0
+    total_executions: int = 0
+    traversal_rate: float = 0.0
+    recommendation: str = ""
+
+
+@dataclass
+class ShortcutOpportunity:
+    """An opportunity to add a shortcut edge."""
+    from_node: str
+    to_node: str
+    skipped_nodes: List[str] = field(default_factory=list)
+    frequency: int = 0  # How often this path is taken
+    potential_latency_savings: float = 0.0  # Seconds
+    confidence: float = 0.0  # 0.0 to 1.0
+    condition_suggestion: Optional[str] = None
+
+
+@dataclass
+class OptimizedCondition:
+    """An optimized edge condition."""
+    original_condition: str
+    optimized_condition: str
+    improvement_type: str  # "simplify", "strengthen", "weaken"
+    expected_benefit: str
+    rationale: str
+
+
+@dataclass
+class ParallelizableSequence:
+    """A sequence of nodes that can be parallelized."""
+    sequential_nodes: List[str]
+    entry_node: str
+    exit_node: str
+    has_dependencies: bool = False
+    dependency_details: Dict[str, Any] = field(default_factory=dict)
+    estimated_speedup: float = 0.0  # Multiplier (e.g., 2.0 = 2x faster)
+    confidence: float = 0.0
+
+
+@dataclass
+class ParallelizationBenefit:
+    """Expected benefit from parallelization."""
+    latency_reduction: float  # Seconds
+    speedup_multiplier: float
+    resource_increase: float  # Percentage increase in resource usage
+    complexity_increase: int
+    confidence: float
+
+
+@dataclass
+class ParallelGraphStructure:
+    """A parallel graph structure."""
+    parallel_branches: List[List[str]]  # Each inner list is a parallel branch
+    merge_node_id: Optional[str] = None
+    requires_merge: bool = False
+    merge_strategy: str = "wait_all"  # wait_all, wait_any, custom
