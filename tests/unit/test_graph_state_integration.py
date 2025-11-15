@@ -2,8 +2,9 @@
 
 import pytest
 import asyncio
+from pydantic import ValidationError
 from spark.nodes import Node, EdgeCondition
-from spark.graphs import Graph, Task, TaskType
+from spark.graphs import Graph, Task, TaskType, GraphCheckpointConfig, MissionStateModel
 from spark.nodes.types import NodeMessage
 
 
@@ -42,6 +43,12 @@ class ConditionalNode(Node):
 
         counter = await context.graph_state.get('counter', 0)
         return {'should_continue': counter < 3}
+
+
+class CounterStateModel(MissionStateModel):
+    """Mission state schema requiring integer counter."""
+
+    counter: int
 
 
 class TestGraphStateIntegration:
@@ -234,7 +241,7 @@ class TestGraphStateIntegration:
 
         await graph.run()
         checkpoint = await graph.checkpoint_state()
-        assert checkpoint['state']['counter'] == 3
+        assert checkpoint.state['counter'] == 3
 
         graph.reset_state({'counter': 0})
         await graph.run()
@@ -242,6 +249,50 @@ class TestGraphStateIntegration:
 
         await graph.restore_state(checkpoint)
         assert await graph.get_state('counter') == 3
+
+    @pytest.mark.asyncio
+    async def test_resume_from_checkpoint(self):
+        """Graphs can resume from checkpoint snapshots."""
+        node = CounterNode()
+        graph = Graph(start=node, initial_state={'counter': 0})
+
+        await graph.run()
+        checkpoint = await graph.checkpoint_state()
+        graph.reset_state({'counter': 0})
+
+        await graph.resume_from(checkpoint)
+        assert await graph.get_state('counter') == 2
+
+    @pytest.mark.asyncio
+    async def test_auto_checkpoint_history(self):
+        """Auto-checkpoints should record history based on config."""
+        node = CounterNode()
+        graph = Graph(start=node, initial_state={'counter': 0})
+        graph.configure_checkpoints(GraphCheckpointConfig(enabled=True, every_n_iterations=1, retain_last=2))
+
+        await graph.run()
+        history = graph.get_checkpoint_history()
+
+        assert len(history) >= 1
+        assert history[-1].state['counter'] == 1
+
+    @pytest.mark.asyncio
+    async def test_state_schema_validation(self):
+        """GraphState should enforce MissionStateModel schemas."""
+
+        class BadNode(Node):
+            async def process(self, context):
+                await context.graph_state.set('counter', 'invalid')
+                return {'counter': 'invalid'}
+
+        graph = Graph(start=BadNode(), state_schema=CounterStateModel)
+        with pytest.raises(ValidationError):
+            await graph.run()
+
+        # Valid data passes validation
+        graph_ok = Graph(start=CounterNode(), state_schema=CounterStateModel, initial_state={'counter': 0})
+        await graph_ok.run()
+        assert await graph_ok.get_state('counter') == 1
 
     @pytest.mark.asyncio
     async def test_concurrent_state_access_long_running(self):

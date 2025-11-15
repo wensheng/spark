@@ -46,6 +46,9 @@ from spark.nodes.spec import (
     ModelSpec,
     GraphStateSpec,
     GraphEventBusSpec,
+    StateBackendConfigSpec,
+    StateCheckpointSpec,
+    MissionStateSchemaSpec,
     TaskSpec,
     BudgetSpec,
 )
@@ -608,9 +611,26 @@ def graph_to_spec(graph: BaseGraph, *, spark_version: str = '2.0') -> GraphSpec:
             initial_state = graph_state.get_snapshot()
             backend = getattr(graph_state, '_backend', None)
             concurrent_mode = bool(getattr(backend, '_concurrent_mode', False))
+            backend_info = graph_state.describe_backend()
+            backend_spec = StateBackendConfigSpec(
+                name=backend_info.get('name', 'memory'),
+                options=backend_info.get('config', {}),
+            )
+            schema_info = graph_state.describe_schema()
+            schema_spec = MissionStateSchemaSpec(**schema_info) if schema_info else None
+            checkpoint_cfg = getattr(graph, 'get_checkpoint_config', None)
+            checkpoint_spec = None
+            if callable(checkpoint_cfg):
+                cfg = checkpoint_cfg()
+                if cfg:
+                    checkpoint_spec = StateCheckpointSpec(**cfg.to_serializable())
             graph_state_spec = GraphStateSpec(
                 initial_state=initial_state,
                 concurrent_mode=concurrent_mode,
+                backend=backend_spec,
+                schema=schema_spec,
+                checkpointing=checkpoint_spec,
+                persistence='disk' if backend_spec.name in ('sqlite', 'file') else 'memory',
             )
         except Exception as e:
             logger.debug(f"Could not serialize GraphState: %s", e)

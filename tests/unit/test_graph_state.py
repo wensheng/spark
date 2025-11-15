@@ -2,6 +2,7 @@
 
 import asyncio
 from contextlib import asynccontextmanager
+from typing import Any
 
 import pytest
 
@@ -42,6 +43,16 @@ class RecordingBackend(StateBackend):
 
     async def keys(self) -> list[str]:
         return list(self._state.keys())
+
+    async def items(self) -> dict[str, Any]:
+        return dict(self._state)
+
+    async def compare_and_set(self, key: str, expected, value) -> bool:
+        current = self._state.get(key)
+        if current != expected:
+            return False
+        self._state[key] = value
+        return True
 
     @asynccontextmanager
     async def transaction(self):

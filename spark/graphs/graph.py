@@ -11,6 +11,8 @@ from collections.abc import Iterable
 from typing import Any, Callable, Coroutine, Optional, final
 from types import SimpleNamespace
 
+from pydantic import BaseModel
+
 from spark.nodes.base import BaseNode, Edge, EdgeCondition
 from spark.nodes.nodes import Node
 from spark.graphs.base import BaseGraph
@@ -19,6 +21,7 @@ from spark.nodes.types import ExecutionContext, NodeMessage
 from spark.nodes.channels import ChannelMessage, ForwardingChannel, BaseChannel
 from spark.graphs.event_bus import GraphEventBus
 from spark.graphs.graph_state import GraphState
+from spark.graphs.checkpoint import GraphCheckpoint, GraphCheckpointConfig
 from spark.graphs.hooks import GraphLifecycleContext, GraphLifecycleEvent, HookFn, ensure_coroutine
 
 # Import telemetry (optional)
@@ -47,6 +50,8 @@ class Graph(BaseGraph):
         lifecycle_hooks = kwargs.pop('lifecycle_hooks', None)
         state_backend = kwargs.pop('state_backend', None)
         mission_control = kwargs.pop('mission_control', None)
+        state_schema: type[BaseModel] | BaseModel | None = kwargs.pop('state_schema', None)
+        checkpoint_config: GraphCheckpointConfig | None = kwargs.pop('checkpoint_config', None)
         super().__init__(*edges, **kwargs)
         self._running_nodes: set[BaseNode] | None = None
         self._auto_shutdown_enabled: bool = kwargs.get('auto_shutdown', True)
@@ -57,8 +62,14 @@ class Graph(BaseGraph):
 
         # Initialize graph state
         initial_state = kwargs.get('initial_state')
-        self.state = GraphState(initial_state, backend=state_backend)
+        self._state_schema = state_schema
+        self.state = GraphState(initial_state, backend=state_backend, schema_model=state_schema)
         self._state_enabled: bool = kwargs.get('enable_graph_state', True)
+        self._checkpoint_config: GraphCheckpointConfig | None = None
+        self._checkpoint_history: list[GraphCheckpoint] = []
+        self._last_checkpoint_at: float | None = None
+        if checkpoint_config:
+            self.configure_checkpoints(checkpoint_config)
 
         # Initialize telemetry
         self._telemetry_config: Optional[Any] = kwargs.get('telemetry_config')
@@ -186,6 +197,7 @@ class Graph(BaseGraph):
     async def _run_internal(self, task: Task) -> Any:
         """Internal run implementation without timeout handling."""
         inputs = task.inputs
+        self._last_checkpoint_at = None
         self._delayed_ready = asyncio.Queue()
         self._delay_tasks = []
         self._event_tasks = []
@@ -365,6 +377,7 @@ class Graph(BaseGraph):
                     last_output=last_output,
                     metadata=after_metadata,
                 )
+                await self._maybe_checkpoint(iteration_index + 1, task)
                 iteration_index += 1
 
             if last_output is None:
@@ -599,7 +612,12 @@ class Graph(BaseGraph):
             preserve_backend: Whether to re-use the existing state backend.
         """
         backend = getattr(self.state, '_backend', None) if preserve_backend else None
-        self.state = GraphState(new_state, backend=backend)
+        if backend and preserve_backend:
+            try:
+                backend.clear()
+            except Exception:
+                logger.debug("State backend does not support clear(); continuing with existing data.")
+        self.state = GraphState(new_state, backend=backend, schema_model=self._state_schema)
 
     def get_state_snapshot(self) -> dict[str, Any]:
         """Get a snapshot of current state.
@@ -609,18 +627,87 @@ class Graph(BaseGraph):
         """
         return self.state.get_snapshot()
 
-    async def checkpoint_state(self) -> dict[str, Any]:
-        """Create a checkpoint containing the graph state."""
-        return {
-            'graph_id': self.id,
-            'timestamp': time.time(),
-            'state': self.state.get_snapshot(),
-        }
+    def configure_checkpoints(self, config: GraphCheckpointConfig | dict[str, Any] | None) -> None:
+        """Configure auto-checkpointing behavior."""
+        if config is None:
+            self._checkpoint_config = None
+            return
+        if isinstance(config, GraphCheckpointConfig):
+            self._checkpoint_config = config.clone()
+        else:
+            self._checkpoint_config = GraphCheckpointConfig.from_dict(dict(config))
 
-    async def restore_state(self, snapshot: dict[str, Any]) -> None:
+    def get_checkpoint_config(self) -> GraphCheckpointConfig | None:
+        """Return current checkpointing configuration."""
+        return self._checkpoint_config.clone() if self._checkpoint_config else None
+
+    def get_checkpoint_history(self) -> list[GraphCheckpoint]:
+        """List recent checkpoints created by auto-checkpointing."""
+        return list(self._checkpoint_history)
+
+    async def checkpoint_state(
+        self,
+        *,
+        iteration: int | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> GraphCheckpoint:
+        """Create a checkpoint containing the graph state."""
+        checkpoint = GraphCheckpoint.create(
+            graph_id=self.id or 'graph',
+            state=self.state.get_snapshot(),
+            iteration=iteration,
+            schema=self.state.describe_schema(),
+            metadata=metadata,
+        )
+        checkpoint.metadata.setdefault('backend', self.state.describe_backend())
+        return checkpoint
+
+    async def restore_state(self, snapshot: GraphCheckpoint | dict[str, Any]) -> None:
         """Restore state from a checkpoint snapshot."""
-        state_payload = snapshot.get('state') if isinstance(snapshot, dict) else None
-        await self.state.reset(state_payload or {})
+        checkpoint = GraphCheckpoint.ensure(snapshot)
+        await self.state.reset(dict(checkpoint.state))
+
+    async def resume_from(
+        self,
+        checkpoint: GraphCheckpoint | dict[str, Any],
+        *,
+        overrides: dict[str, Any] | None = None,
+        task: Task | None = None,
+    ) -> Any:
+        """Resume execution from a checkpoint."""
+        checkpoint_obj = GraphCheckpoint.ensure(checkpoint)
+        await self.state.reset(dict(checkpoint_obj.state))
+        if overrides:
+            await self.state.update(dict(overrides))
+        resume_task = task.model_copy(deep=True) if task is not None else Task()
+        resume_task.type = TaskType.RESUMABLE
+        resume_task.metadata = dict(resume_task.metadata or {})
+        resume_task.metadata.setdefault('checkpoint_id', checkpoint_obj.checkpoint_id)
+        if hasattr(resume_task, 'resume_from'):
+            resume_task.resume_from = checkpoint_obj.checkpoint_id  # type: ignore[attr-defined]
+        return await self.run(resume_task)
+
+    async def _maybe_checkpoint(self, iteration_index: int, task: Task) -> None:
+        """Emit auto-checkpoints when configured."""
+        if not self._checkpoint_config:
+            return
+        now = time.time()
+        if not self._checkpoint_config.should_checkpoint(
+            iteration_index,
+            now=now,
+            last_checkpoint_at=self._last_checkpoint_at,
+        ):
+            return
+        metadata = dict(self._checkpoint_config.metadata)
+        metadata.setdefault('task_type', task.type.value if hasattr(task.type, 'value') else str(task.type))
+        checkpoint = await self.checkpoint_state(iteration=iteration_index, metadata=metadata)
+        self._checkpoint_history.append(checkpoint)
+        retain = self._checkpoint_config.retain_last
+        if retain and retain > 0 and len(self._checkpoint_history) > retain:
+            self._checkpoint_history = self._checkpoint_history[-retain:]
+        self._last_checkpoint_at = checkpoint.created_at
+        if self._checkpoint_config.handler:
+            await ensure_coroutine(self._checkpoint_config.handler, checkpoint)
 
     async def _event_edge_worker(self, edge: Edge, subscription: Any) -> None:
         try:

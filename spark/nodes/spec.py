@@ -679,6 +679,47 @@ class ModelSpec(BaseModel):
     """Enable response caching"""
 
 
+class StateBackendConfigSpec(BaseModel):
+    """Backend configuration for GraphState."""
+
+    model_config = ConfigDict(extra='ignore')
+
+    name: Literal['memory', 'sqlite', 'file', 'redis', 'postgres', 's3'] = 'memory'
+    """Backend identifier."""
+
+    options: dict[str, Any] = Field(default_factory=dict)
+    """Backend-specific options (paths, DSNs, etc.)."""
+
+    serializer: Literal['json'] = 'json'
+    """Serializer identifier (future extension)."""
+
+    encryption: Optional[str] = None
+    """Optional encryption reference."""
+
+
+class StateCheckpointSpec(BaseModel):
+    """Auto-checkpoint configuration for graph state."""
+
+    model_config = ConfigDict(extra='ignore')
+
+    enabled: bool = False
+    every_n_iterations: Optional[int] = None
+    every_seconds: Optional[float] = None
+    retain_last: int = 5
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class MissionStateSchemaSpec(BaseModel):
+    """Metadata describing the mission state schema."""
+
+    model_config = ConfigDict(extra='ignore')
+
+    name: str
+    version: str = '1.0'
+    module: Optional[str] = None
+    json_schema: Optional[dict[str, Any]] = None
+
+
 class GraphStateSpec(BaseModel):
     """Graph state configuration.
 
@@ -701,7 +742,24 @@ class GraphStateSpec(BaseModel):
     """Enable locking for concurrent access (LONG_RUNNING tasks)"""
 
     persistence: Optional[Literal['memory', 'disk']] = 'memory'
-    """State persistence strategy"""
+    """Deprecated persistence strategy (use backend)."""
+
+    backend: Optional[StateBackendConfigSpec] = None
+    """Detailed backend configuration."""
+
+    checkpointing: Optional[StateCheckpointSpec] = None
+    """Auto-checkpoint declarative settings."""
+
+    schema: Optional[MissionStateSchemaSpec] = None
+    """Schema metadata for mission state."""
+
+    @model_validator(mode='after')
+    def _ensure_backend(self) -> 'GraphStateSpec':
+        """Populate backend from legacy persistence flag if not provided."""
+        if self.backend is None:
+            backend_name = 'sqlite' if self.persistence == 'disk' else 'memory'
+            self.backend = StateBackendConfigSpec(name=backend_name)
+        return self
 
 
 class GraphEventBusSpec(BaseModel):

@@ -1,7 +1,9 @@
 """Graph-level state management with pluggable backends."""
 
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import Any, Type
+
+from pydantic import BaseModel
 
 from spark.graphs.state_backend import InMemoryStateBackend, StateBackend
 
@@ -17,6 +19,7 @@ class GraphState:
         self,
         initial_state: dict[str, Any] | None = None,
         backend: StateBackend | None = None,
+        schema_model: Type[BaseModel] | BaseModel | None = None,
     ) -> None:
         """Initialize the graph state wrapper.
 
@@ -29,6 +32,33 @@ class GraphState:
         self._pending_initial_state: dict[str, Any] = {}
         if backend and initial_state:
             self._pending_initial_state = dict(initial_state)
+        self._schema_cls = self._normalize_schema(schema_model)
+        self._schema_metadata = self._build_schema_metadata(self._schema_cls)
+
+    def _normalize_schema(self, schema_model: Type[BaseModel] | BaseModel | None) -> Type[BaseModel] | None:
+        if schema_model is None:
+            return None
+        if isinstance(schema_model, type) and issubclass(schema_model, BaseModel):
+            return schema_model
+        if isinstance(schema_model, BaseModel):
+            return schema_model.__class__
+        raise TypeError(f"Invalid schema model: {schema_model!r}")
+
+    def _build_schema_metadata(self, schema_cls: Type[BaseModel] | None) -> dict[str, Any] | None:
+        if schema_cls is None:
+            return None
+        metadata = {
+            'name': getattr(schema_cls, 'schema_name', schema_cls.__name__),
+            'version': getattr(schema_cls, 'schema_version', '1.0'),
+            'module': f"{schema_cls.__module__}:{schema_cls.__name__}",
+            'json_schema': schema_cls.model_json_schema(),
+        }
+        return metadata
+
+    def _validate_state(self, candidate: dict[str, Any]) -> None:
+        if self._schema_cls is None:
+            return
+        self._schema_cls.model_validate(candidate)
 
     async def initialize(self) -> None:
         """Initialize the backend once graph runtime is ready."""
@@ -54,14 +84,25 @@ class GraphState:
 
     async def set(self, key: str, value: Any) -> None:
         """Thread-safe set operation."""
+        snapshot = self.get_snapshot()
+        snapshot[key] = value
+        self._validate_state(snapshot)
         await self._backend.set(key, value)
 
     async def update(self, updates: dict[str, Any]) -> None:
         """Thread-safe batch update."""
+        if not updates:
+            return
+        snapshot = self.get_snapshot()
+        snapshot.update(updates)
+        self._validate_state(snapshot)
         await self._backend.update(updates)
 
     async def delete(self, key: str) -> None:
         """Thread-safe delete operation."""
+        snapshot = self.get_snapshot()
+        snapshot.pop(key, None)
+        self._validate_state(snapshot)
         await self._backend.delete(key)
 
     async def has(self, key: str) -> bool:
@@ -77,6 +118,7 @@ class GraphState:
         """Context manager for atomic multi-operation transactions."""
         async with self._backend.transaction() as state_dict:
             yield state_dict
+        self._validate_state(self._backend.snapshot())
 
     def get_snapshot(self) -> dict[str, Any]:
         """Return a shallow copy of current state (non-blocking)."""
@@ -96,6 +138,16 @@ class GraphState:
             state_dict.clear()
             if new_state:
                 state_dict.update(new_state)
+        self._pending_initial_state.clear()
+        self._validate_state(self.get_snapshot())
+
+    def describe_backend(self) -> dict[str, Any]:
+        """Return backend metadata for serialization."""
+        return self._backend.describe()
+
+    def describe_schema(self) -> dict[str, Any] | None:
+        """Return schema metadata if configured."""
+        return dict(self._schema_metadata) if self._schema_metadata else None
 
     def __repr__(self) -> str:
         """Return a string representation of the state."""

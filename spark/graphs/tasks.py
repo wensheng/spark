@@ -89,6 +89,7 @@ class Task(BaseModel):
     campaign: CampaignInfo | None = Field(default=None, description="Campaign metadata for grouped budgets.")
 
     metadata: dict[str, Any] = Field(default_factory=dict, description="Arbitrary metadata for schedulers.")
+    resume_from: str | None = Field(default=None, description="Checkpoint identifier to resume from.")
 
     @model_validator(mode="after")
     def validate_dependencies(self) -> "Task":

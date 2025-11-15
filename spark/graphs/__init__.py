@@ -9,7 +9,7 @@ from spark.graphs.tasks import (
     CampaignBudgetError,
 )
 from spark.graphs.graph_state import GraphState
-from spark.graphs.state_backend import StateBackend, InMemoryStateBackend, SQLiteStateBackend
+from spark.graphs.state_backend import StateBackend, InMemoryStateBackend, SQLiteStateBackend, JSONFileStateBackend
 from spark.graphs.mission_control import (
     MissionControl,
     MissionPlan,
@@ -21,6 +21,8 @@ from spark.graphs.mission_control import (
     BudgetGuardrailConfig,
     GuardrailBreachError,
 )
+from spark.graphs.checkpoint import GraphCheckpoint, GraphCheckpointConfig
+from spark.graphs.state_schema import MissionStateModel
 
 __all__ = [
     "BaseGraph",
@@ -44,4 +46,8 @@ __all__ = [
     "StateBackend",
     "InMemoryStateBackend",
     "SQLiteStateBackend",
+    "JSONFileStateBackend",
+    "GraphCheckpoint",
+    "GraphCheckpointConfig",
+    "MissionStateModel",
 ]

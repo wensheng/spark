@@ -12,6 +12,8 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional
 
+from pydantic import BaseModel
+
 from spark.nodes.spec import (
     GraphSpec,
     NodeSpec,
@@ -24,7 +26,9 @@ from spark.nodes.spec import (
 from spark.nodes.base import BaseNode, Edge, EdgeCondition
 from spark.nodes.types import ExecutionContext
 from spark.graphs.graph import Graph
-from spark.utils.import_utils import import_from_ref
+from spark.graphs.checkpoint import GraphCheckpointConfig
+from spark.graphs.state_backend import create_state_backend
+from spark.utils.import_utils import import_from_ref, import_class_from_ref, ImportError as ImportResolutionError
 
 logger = logging.getLogger(__name__)
 
@@ -390,12 +394,41 @@ class SpecLoader:
                 edge.id = edge_spec.id
                 edges.append(edge)
 
-            initial_state = None
+            initial_state: dict[str, Any] = {}
+            state_backend_instance = None
+            state_schema_model: type[BaseModel] | BaseModel | None = None
+            checkpoint_config: GraphCheckpointConfig | None = None
             if graph_spec.graph_state:
-                initial_state = graph_spec.graph_state.initial_state or {}
+                initial_state = dict(graph_spec.graph_state.initial_state or {})
+                backend_spec = graph_spec.graph_state.backend
+                if backend_spec:
+                    state_backend_instance = create_state_backend(
+                        backend_spec.name,
+                        options=backend_spec.options,
+                    )
+                schema_spec = graph_spec.graph_state.schema
+                if schema_spec and schema_spec.module:
+                    try:
+                        schema_cls = import_class_from_ref(schema_spec.module)
+                    except ImportResolutionError as exc:
+                        raise SpecLoaderError(f"Failed to import mission state schema '{schema_spec.module}': {exc}") from exc
+                    if not isinstance(schema_cls, type) or not issubclass(schema_cls, BaseModel):
+                        raise SpecLoaderError(f"Schema reference '{schema_spec.module}' is not a Pydantic model.")
+                    state_schema_model = schema_cls
+                if graph_spec.graph_state.checkpointing:
+                    checkpoint_config = GraphCheckpointConfig.from_dict(
+                        graph_spec.graph_state.checkpointing.model_dump()
+                    )
 
             # Create graph
-            graph = Graph(*edges, start=start_node, initial_state=initial_state)
+            graph = Graph(
+                *edges,
+                start=start_node,
+                initial_state=initial_state,
+                state_backend=state_backend_instance,
+                state_schema=state_schema_model,
+                checkpoint_config=checkpoint_config,
+            )
             graph.id = graph_spec.id
             if graph_spec.description:
                 graph.description = graph_spec.description

@@ -20,6 +20,7 @@ from spark.agents.agent import Agent
 from spark.agents.config import AgentConfig
 from spark.agents.memory import MemoryConfig
 from spark.graphs.graph import Graph
+from spark.graphs import MissionStateModel
 from spark.models.echo import EchoModel
 
 from spark.nodes.serde import (
@@ -40,6 +41,10 @@ from spark.nodes.spec import (
     ToolDefinitionSpec,
     EnhancedAgentConfigSpec,
     GraphSpec,
+    GraphStateSpec,
+    NodeSpec,
+    StateBackendConfigSpec,
+    MissionStateSchemaSpec,
 )
 
 
@@ -54,6 +59,12 @@ class TestNode(Node):
     async def process(self, context: ExecutionContext) -> Any:
         """Simple pass-through process."""
         return context.inputs
+
+
+class CounterSchema(MissionStateModel):
+    """Schema used for spec loader tests."""
+
+    counter: int
 
 
 # ==============================================================================
@@ -269,6 +280,9 @@ async def test_graph_to_spec_with_graph_state():
     assert graph_spec.graph_state is not None
     assert 'counter' in graph_spec.graph_state.initial_state
     assert graph_spec.graph_state.initial_state['counter'] == 42
+    assert graph_spec.graph_state.backend is not None
+    assert graph_spec.graph_state.backend.name == 'memory'
+    assert graph_spec.graph_state.checkpointing is None
 
 
 # ==============================================================================
@@ -320,9 +334,37 @@ def test_spec_loader_load_node_basic():
     )
 
     node = loader.load_node(node_spec)
-
     assert node is not None
     assert node.id == 'test-node'
+
+
+def test_spec_loader_with_backend_and_schema(tmp_path):
+    """Loader should configure state backend and schema."""
+    loader = SpecLoader(import_policy='allow_all')
+    db_path = tmp_path / "state.db"
+    graph_spec = GraphSpec(
+        spark_version='2.0',
+        id='sqlite-graph',
+        start='node',
+        nodes=[NodeSpec(id='node', type='Node', description='Generic')],
+        edges=[],
+        graph_state=GraphStateSpec(
+            initial_state={'counter': 5},
+            backend=StateBackendConfigSpec(name='sqlite', options={'db_path': str(db_path)}),
+            schema=MissionStateSchemaSpec(
+                name='CounterSchema',
+                version='1.0',
+                module='tests.unit.test_serde:CounterSchema',
+            ),
+        ),
+    )
+
+    graph = loader.load_graph(graph_spec)
+    backend_info = graph.state.describe_backend()
+    assert backend_info['name'] == 'sqlite'
+    schema_info = graph.state.describe_schema()
+    assert schema_info is not None
+    assert schema_info['name'] == 'CounterSchema'
 
 
 def test_spec_loader_load_graph_simple():

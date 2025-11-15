@@ -3,19 +3,44 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
+import logging
 import sqlite3
 from abc import ABC, abstractmethod
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any, AsyncIterator, Callable
+from typing import Any, AsyncIterator, Awaitable, Callable, ClassVar
+
+logger = logging.getLogger(__name__)
+
+WatcherCallback = Callable[[str, Any, Any], Awaitable[None] | None]
+
+
+def _diff_state(before: dict[str, Any], after: dict[str, Any]) -> list[tuple[str, Any, Any]]:
+    """Return list of (key, old, new) changes between two dictionaries."""
+    changes: list[tuple[str, Any, Any]] = []
+    before_keys = set(before.keys())
+    after_keys = set(after.keys())
+    for key in after_keys:
+        old = before.get(key)
+        new = after[key]
+        if old != new:
+            changes.append((key, old, new))
+    removed_keys = before_keys - after_keys
+    for key in removed_keys:
+        changes.append((key, before[key], None))
+    return changes
 
 
 class StateBackend(ABC):
     """Abstract storage backend for graph/agent state."""
 
+    backend_name: ClassVar[str] = 'custom'
+
     def __init__(self, initial_state: dict[str, Any] | None = None) -> None:
         self._initial_state = dict(initial_state or {})
+        self._watchers: dict[str, list[WatcherCallback]] = {}
 
     async def initialize(self) -> None:
         """Optional async initialization hook."""
@@ -46,9 +71,21 @@ class StateBackend(ABC):
         """Return list of keys."""
 
     @abstractmethod
+    async def items(self) -> dict[str, Any]:
+        """Return map of all state values."""
+
+    @abstractmethod
+    async def compare_and_set(self, key: str, expected: Any, value: Any) -> bool:
+        """Atomically set value if current matches expected."""
+
+    @abstractmethod
     @asynccontextmanager
     async def transaction(self) -> AsyncIterator[dict[str, Any]]:
         """Context manager for atomic updates."""
+
+    def describe(self) -> dict[str, Any]:
+        """Return metadata describing backend configuration."""
+        return {'name': self.backend_name, 'config': {}}
 
     def snapshot(self) -> dict[str, Any]:
         """Return a shallow copy of the underlying state."""
@@ -70,9 +107,34 @@ class StateBackend(ABC):
         """Disable synchronization for sequential access."""
         return None
 
+    def register_watcher(self, key: str, callback: WatcherCallback) -> Callable[[], None]:
+        """Register callback invoked when key changes."""
+        watchers = self._watchers.setdefault(key, [])
+        watchers.append(callback)
+
+        def _remove() -> None:
+            try:
+                watchers.remove(callback)
+            except ValueError:
+                pass
+
+        return _remove
+
+    async def _notify_watchers(self, key: str, old: Any, new: Any) -> None:
+        callbacks = list(self._watchers.get(key, [])) + list(self._watchers.get('*', []))
+        for callback in callbacks:
+            try:
+                result = callback(key, old, new)
+                if inspect.isawaitable(result):
+                    await result
+            except Exception:
+                logger.exception("State watcher failed for key=%s callback=%s", key, callback)
+
 
 class InMemoryStateBackend(StateBackend):
     """Async-lock backed in-memory store used as default GraphState backend."""
+
+    backend_name = 'memory'
 
     def __init__(self, initial_state: dict[str, Any] | None = None) -> None:
         super().__init__(initial_state)
@@ -86,9 +148,6 @@ class InMemoryStateBackend(StateBackend):
     def disable_concurrent_mode(self) -> None:
         self._concurrent_mode = False
 
-    async def _with_lock(self) -> asyncio.Lock:
-        return self._lock
-
     async def get(self, key: str, default: Any = None) -> Any:
         if self._concurrent_mode:
             async with self._lock:
@@ -98,23 +157,33 @@ class InMemoryStateBackend(StateBackend):
     async def set(self, key: str, value: Any) -> None:
         if self._concurrent_mode:
             async with self._lock:
+                old = self._state.get(key)
                 self._state[key] = value
-                return
-        self._state[key] = value
+        else:
+            old = self._state.get(key)
+            self._state[key] = value
+        await self._notify_watchers(key, old, value)
 
     async def update(self, updates: dict[str, Any]) -> None:
+        if not updates:
+            return
         if self._concurrent_mode:
             async with self._lock:
+                old_values = {key: self._state.get(key) for key in updates.keys()}
                 self._state.update(updates)
-                return
-        self._state.update(updates)
+        else:
+            old_values = {key: self._state.get(key) for key in updates.keys()}
+            self._state.update(updates)
+        for key, value in updates.items():
+            await self._notify_watchers(key, old_values.get(key), value)
 
     async def delete(self, key: str) -> None:
         if self._concurrent_mode:
             async with self._lock:
-                self._state.pop(key, None)
-                return
-        self._state.pop(key, None)
+                old = self._state.pop(key, None)
+        else:
+            old = self._state.pop(key, None)
+        await self._notify_watchers(key, old, None)
 
     async def has(self, key: str) -> bool:
         if self._concurrent_mode:
@@ -128,13 +197,41 @@ class InMemoryStateBackend(StateBackend):
                 return list(self._state.keys())
         return list(self._state.keys())
 
+    async def items(self) -> dict[str, Any]:
+        if self._concurrent_mode:
+            async with self._lock:
+                return dict(self._state)
+        return dict(self._state)
+
+    async def compare_and_set(self, key: str, expected: Any, value: Any) -> bool:
+        if self._concurrent_mode:
+            async with self._lock:
+                current = self._state.get(key)
+                if current != expected:
+                    return False
+                self._state[key] = value
+        else:
+            current = self._state.get(key)
+            if current != expected:
+                return False
+            self._state[key] = value
+        await self._notify_watchers(key, expected, value)
+        return True
+
     @asynccontextmanager
     async def transaction(self):
         if self._concurrent_mode:
             async with self._lock:
+                before = dict(self._state)
                 yield self._state
-                return
-        yield self._state
+                after = dict(self._state)
+        else:
+            before = dict(self._state)
+            yield self._state
+            after = dict(self._state)
+        changes = _diff_state(before, after)
+        for key, old, new in changes:
+            await self._notify_watchers(key, old, new)
 
     def snapshot(self) -> dict[str, Any]:
         return dict(self._state)
@@ -145,9 +242,14 @@ class InMemoryStateBackend(StateBackend):
     def clear(self) -> None:
         self._state.clear()
 
+    def describe(self) -> dict[str, Any]:
+        return {'name': self.backend_name, 'config': {'concurrent': self._concurrent_mode}}
+
 
 class SQLiteStateBackend(StateBackend):
     """SQLite backed state store for durable mission data."""
+
+    backend_name = 'sqlite'
 
     def __init__(self, db_path: str | Path, *, table_name: str = "graph_state", initial_state: dict[str, Any] | None = None) -> None:
         super().__init__(initial_state)
@@ -179,6 +281,7 @@ class SQLiteStateBackend(StateBackend):
 
     async def _write_many(self, items: dict[str, Any]) -> None:
         conn = self._ensure_conn()
+
         def _write():
             cur = conn.cursor()
             for key, value in items.items():
@@ -188,16 +291,19 @@ class SQLiteStateBackend(StateBackend):
                     (key, json.dumps(value)),
                 )
             conn.commit()
+
         await asyncio.to_thread(_write)
 
     async def _delete_keys(self, keys: list[str]) -> None:
         if not keys:
             return
         conn = self._ensure_conn()
+
         def _delete():
             cur = conn.cursor()
             cur.executemany(f"DELETE FROM {self.table_name} WHERE key = ?", ((key,) for key in keys))
             conn.commit()
+
         await asyncio.to_thread(_delete)
 
     async def get(self, key: str, default: Any = None) -> Any:
@@ -211,15 +317,19 @@ class SQLiteStateBackend(StateBackend):
         if not updates:
             return
         async with self._lock:
+            before = {key: self._state_cache.get(key) for key in updates.keys()}
             self._state_cache.update(updates)
         await self._write_many(updates)
+        for key, value in updates.items():
+            await self._notify_watchers(key, before.get(key), value)
 
     async def delete(self, key: str) -> None:
         async with self._lock:
             existed = key in self._state_cache
-            self._state_cache.pop(key, None)
+            old = self._state_cache.pop(key, None)
         if existed:
             await self._delete_keys([key])
+        await self._notify_watchers(key, old, None)
 
     async def has(self, key: str) -> bool:
         async with self._lock:
@@ -229,6 +339,20 @@ class SQLiteStateBackend(StateBackend):
         async with self._lock:
             return list(self._state_cache.keys())
 
+    async def items(self) -> dict[str, Any]:
+        async with self._lock:
+            return dict(self._state_cache)
+
+    async def compare_and_set(self, key: str, expected: Any, value: Any) -> bool:
+        async with self._lock:
+            current = self._state_cache.get(key)
+            if current != expected:
+                return False
+            self._state_cache[key] = value
+        await self._write_many({key: value})
+        await self._notify_watchers(key, expected, value)
+        return True
+
     @asynccontextmanager
     async def transaction(self):
         await self.initialize()
@@ -236,11 +360,16 @@ class SQLiteStateBackend(StateBackend):
             working_copy = dict(self._state_cache)
         yield working_copy
         async with self._lock:
+            before = dict(self._state_cache)
             self._state_cache = dict(working_copy)
         await self._replace_all(working_copy)
+        changes = _diff_state(before, working_copy)
+        for key, old, new in changes:
+            await self._notify_watchers(key, old, new)
 
     async def _replace_all(self, new_state: dict[str, Any]) -> None:
         conn = self._ensure_conn()
+
         def _replace():
             cur = conn.cursor()
             cur.execute(f"DELETE FROM {self.table_name}")
@@ -249,6 +378,7 @@ class SQLiteStateBackend(StateBackend):
                 ((key, json.dumps(value)) for key, value in new_state.items()),
             )
             conn.commit()
+
         await asyncio.to_thread(_replace)
 
     def snapshot(self) -> dict[str, Any]:
@@ -264,3 +394,155 @@ class SQLiteStateBackend(StateBackend):
         cur = self._conn.cursor()
         cur.execute(f"DELETE FROM {self.table_name}")
         self._conn.commit()
+
+    def describe(self) -> dict[str, Any]:
+        return {'name': self.backend_name, 'config': {'db_path': self.db_path, 'table': self.table_name}}
+
+
+class JSONFileStateBackend(StateBackend):
+    """File-backed backend storing JSON payload."""
+
+    backend_name = 'file'
+
+    def __init__(self, path: str | Path, initial_state: dict[str, Any] | None = None) -> None:
+        super().__init__(initial_state)
+        self.path = Path(path)
+        self._lock = asyncio.Lock()
+        self._state_cache: dict[str, Any] = {}
+
+    async def initialize(self) -> None:
+        if self.path.exists():
+            try:
+                contents = json.loads(self.path.read_text(encoding='utf-8') or "{}")
+                if isinstance(contents, dict):
+                    self._state_cache = contents
+            except Exception:
+                logger.exception("Failed to load state file %s", self.path)
+        if self._initial_state:
+            self._state_cache.update(self._initial_state)
+            await self._write_file()
+
+    async def _write_file(self) -> None:
+        await asyncio.to_thread(self.path.parent.mkdir, parents=True, exist_ok=True)
+
+        def _write():
+            self.path.write_text(json.dumps(self._state_cache, ensure_ascii=False, indent=2), encoding='utf-8')
+
+        await asyncio.to_thread(_write)
+
+    async def get(self, key: str, default: Any = None) -> Any:
+        async with self._lock:
+            return self._state_cache.get(key, default)
+
+    async def set(self, key: str, value: Any) -> None:
+        async with self._lock:
+            old = self._state_cache.get(key)
+            self._state_cache[key] = value
+        await self._write_file()
+        await self._notify_watchers(key, old, value)
+
+    async def update(self, updates: dict[str, Any]) -> None:
+        if not updates:
+            return
+        async with self._lock:
+            before = {k: self._state_cache.get(k) for k in updates.keys()}
+            self._state_cache.update(updates)
+        await self._write_file()
+        for key, value in updates.items():
+            await self._notify_watchers(key, before.get(key), value)
+
+    async def delete(self, key: str) -> None:
+        async with self._lock:
+            old = self._state_cache.pop(key, None)
+        await self._write_file()
+        await self._notify_watchers(key, old, None)
+
+    async def has(self, key: str) -> bool:
+        async with self._lock:
+            return key in self._state_cache
+
+    async def keys(self) -> list[str]:
+        async with self._lock:
+            return list(self._state_cache.keys())
+
+    async def items(self) -> dict[str, Any]:
+        async with self._lock:
+            return dict(self._state_cache)
+
+    async def compare_and_set(self, key: str, expected: Any, value: Any) -> bool:
+        async with self._lock:
+            current = self._state_cache.get(key)
+            if current != expected:
+                return False
+            self._state_cache[key] = value
+        await self._write_file()
+        await self._notify_watchers(key, expected, value)
+        return True
+
+    @asynccontextmanager
+    async def transaction(self):
+        async with self._lock:
+            working_copy = dict(self._state_cache)
+        yield working_copy
+        async with self._lock:
+            before = dict(self._state_cache)
+            self._state_cache = dict(working_copy)
+        await self._write_file()
+        changes = _diff_state(before, working_copy)
+        for key, old, new in changes:
+            await self._notify_watchers(key, old, new)
+
+    def snapshot(self) -> dict[str, Any]:
+        return dict(self._state_cache)
+
+    def get_raw_state(self) -> dict[str, Any]:
+        return self._state_cache
+
+    def clear(self) -> None:
+        self._state_cache.clear()
+        try:
+            self.path.unlink()
+        except FileNotFoundError:
+            return
+
+    def describe(self) -> dict[str, Any]:
+        return {'name': self.backend_name, 'config': {'path': str(self.path)}}
+
+
+_BACKEND_REGISTRY: dict[str, type[StateBackend]] = {}
+
+
+def register_state_backend(name: str, backend_cls: type[StateBackend]) -> None:
+    """Register a backend class."""
+    _BACKEND_REGISTRY[name] = backend_cls
+
+
+def get_backend_class(name: str) -> type[StateBackend] | None:
+    """Return backend class by name."""
+    return _BACKEND_REGISTRY.get(name)
+
+
+def create_state_backend(
+    name: str,
+    *,
+    options: dict[str, Any] | None = None,
+    initial_state: dict[str, Any] | None = None,
+) -> StateBackend:
+    """Instantiate backend based on registry entry."""
+    backend_cls = _BACKEND_REGISTRY.get(name)
+    if backend_cls is None:
+        raise ValueError(f"Unknown state backend '{name}'. Registered: {list(_BACKEND_REGISTRY)}")
+    options = dict(options or {})
+    sig = inspect.signature(backend_cls.__init__)
+    valid_options: dict[str, Any] = {}
+    for key, value in options.items():
+        if key in sig.parameters:
+            valid_options[key] = value
+        else:
+            logger.debug("Ignoring unsupported backend option '%s' for %s", key, name)
+    return backend_cls(initial_state=initial_state, **valid_options)
+
+
+register_state_backend('memory', InMemoryStateBackend)
+register_state_backend('sqlite', SQLiteStateBackend)
+register_state_backend('file', JSONFileStateBackend)
