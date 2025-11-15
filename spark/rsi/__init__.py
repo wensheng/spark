@@ -27,10 +27,13 @@ Phase 5 Components:
 - PatternExtractor: Learn from historical improvement attempts
 - RSIMetaGraph: Complete autonomous RSI workflow orchestration
 
-Phase 6 Components (NEW - in progress):
+Phase 6 Components:
 - NodeReplacementAnalyzer: Identify node replacement opportunities
 - EdgeOptimizer: Optimize graph edges (shortcuts, redundancy removal)
 - ParallelizationAnalyzer: Convert sequential to parallel execution
+- HumanReviewNode: Human-in-the-loop review for high-risk changes
+- GraphDiffer: Visualize graph changes in multiple formats
+- MultiObjectiveOptimizer: Balance latency, cost, quality, reliability trade-offs
 
 Usage:
     from spark.rsi import (
@@ -108,12 +111,30 @@ from spark.rsi.rsi_meta_graph import (
     TestGateNode
 )
 
-# Phase 6 exports
+# Phase 6 exports - Structural Analysis
 from spark.rsi.node_replacement import NodeReplacementAnalyzer
 from spark.rsi.edge_optimizer import EdgeOptimizer
 from spark.rsi.parallelization_analyzer import ParallelizationAnalyzer
 
-__version__ = "0.6.0"  # Phase 6 (in progress)
+# Phase 6 exports - Safety and Optimization
+from spark.rsi.human_review import (
+    HumanReviewNode,
+    HumanReviewConfig,
+    ReviewRequestStore,
+    ReviewRequest,
+    ReviewDecision,
+    FeedbackIntegrator
+)
+from spark.rsi.graph_differ import GraphDiffer
+from spark.rsi.multi_objective_optimizer import (
+    MultiObjectiveOptimizer,
+    OptimizationObjectives,
+    MultiObjectiveScore,
+    RankedHypothesis,
+    ParetoFrontier
+)
+
+__version__ = "0.6.0"  # Phase 6 complete
 
 __all__ = [
     # Phase 1
@@ -139,8 +160,21 @@ __all__ = [
     "AnalysisGateNode",
     "ValidationGateNode",
     "TestGateNode",
-    # Phase 6
+    # Phase 6 - Structural Analysis
     "NodeReplacementAnalyzer",
     "EdgeOptimizer",
     "ParallelizationAnalyzer",
+    # Phase 6 - Safety and Optimization
+    "HumanReviewNode",
+    "HumanReviewConfig",
+    "ReviewRequestStore",
+    "ReviewRequest",
+    "ReviewDecision",
+    "FeedbackIntegrator",
+    "GraphDiffer",
+    "MultiObjectiveOptimizer",
+    "OptimizationObjectives",
+    "MultiObjectiveScore",
+    "RankedHypothesis",
+    "ParetoFrontier",
 ]

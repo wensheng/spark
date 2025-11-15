@@ -94,7 +94,7 @@ class ReviewRequest:
                     for v in self.validation_result.violations
                 ],
                 'recommendations': self.validation_result.recommendations,
-            },
+            } if self.validation_result is not None else None,
             'created_at': self.created_at.isoformat(),
             'expires_at': self.expires_at.isoformat(),
             'status': self.status,
