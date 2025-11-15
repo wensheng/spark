@@ -5,10 +5,11 @@ Graphs are the top-level construct in Spark, defining the complete blueprint of 
 import asyncio
 from asyncio import QueueEmpty
 import copy
+import inspect
 import logging
 import time
 from collections.abc import Iterable
-from typing import Any, Callable, Coroutine, Optional, final
+from typing import Any, Awaitable, Callable, Coroutine, Optional, final
 from types import SimpleNamespace
 
 from pydantic import BaseModel
@@ -16,7 +17,14 @@ from pydantic import BaseModel
 from spark.nodes.base import BaseNode, Edge, EdgeCondition
 from spark.nodes.nodes import Node
 from spark.graphs.base import BaseGraph
-from spark.graphs.tasks import Task, TaskType
+from spark.graphs.tasks import (
+    CampaignBudgetError,
+    Task,
+    TaskBatchResult,
+    TaskDependencyError,
+    TaskScheduler,
+    TaskType,
+)
 from spark.nodes.types import ExecutionContext, NodeMessage
 from spark.nodes.channels import ChannelMessage, ForwardingChannel, BaseChannel
 from spark.graphs.event_bus import GraphEventBus
@@ -36,6 +44,21 @@ except ImportError:
     SpanStatus = None  # type: ignore
 
 logger = logging.getLogger(__name__)
+
+
+async def _call_optional(
+    fn: Callable[..., Any] | None,
+    *args: Any,
+    **kwargs: Any,
+) -> Any:
+    """Invoke optional callbacks that may be async or sync."""
+
+    if fn is None:
+        return None
+    result = fn(*args, **kwargs)
+    if inspect.isawaitable(result):
+        return await result
+    return result
 
 
 class Graph(BaseGraph):
@@ -126,6 +149,51 @@ class Graph(BaseGraph):
                 logger.exception("Lifecycle hook failed for event=%s handler=%s", event, handler)
                 raise
 
+    def _build_task_metadata_payload(self, task: Task) -> dict[str, Any]:
+        """Construct a serializable snapshot of task metadata."""
+
+        if not task.task_id:
+            return {}
+        metadata: dict[str, Any] = {
+            'task_id': task.task_id,
+            'type': task.type.value if hasattr(task.type, 'value') else str(task.type),
+            'depends_on': list(task.depends_on),
+            'priority': task.priority,
+            'resume_from': task.resume_from,
+        }
+        if task.budget:
+            metadata['budget'] = task.budget.model_dump()
+        if task.campaign:
+            metadata['campaign'] = task.campaign.model_dump()
+        if task.metadata:
+            metadata['metadata'] = dict(task.metadata)
+        return metadata
+
+    async def _persist_task_metadata(
+        self,
+        task: Task,
+        status: str,
+        *,
+        extra: dict[str, Any] | None = None,
+    ) -> None:
+        """Store task metadata in graph state for observability."""
+
+        if not self._state_enabled or not task.task_id:
+            return
+        payload = self._build_task_metadata_payload(task)
+        if not payload:
+            return
+        existing = await self.state.get('task_metadata', {})
+        if isinstance(existing, dict) and existing.get('task_id') == task.task_id:
+            for key in ('started_at', 'campaign', 'budget', 'metadata'):
+                if key in existing and key not in payload:
+                    payload[key] = existing[key]
+        payload['status'] = status
+        payload['updated_at'] = time.time()
+        if extra:
+            payload.update(extra)
+        await self.state.set('task_metadata', payload)
+
     @final
     async def run(self, arg: Any = None) -> Any:
         """
@@ -157,6 +225,7 @@ class Graph(BaseGraph):
             'task_type': task.type.value if hasattr(task.type, 'value') else str(task.type),
             'graph_id': self.id,
         }
+        run_started_at = time.perf_counter()
         await self._emit_lifecycle_event(GraphLifecycleEvent.BEFORE_RUN, task, metadata=run_metadata)
 
         final_result: Any = None
@@ -186,6 +255,13 @@ class Graph(BaseGraph):
                 after_metadata['error_type'] = type(run_error).__name__
             if final_result is not None:
                 after_metadata['result'] = final_result
+            duration = time.perf_counter() - run_started_at
+            task_status = 'failed' if run_error else 'completed'
+            status_extra = {'duration_seconds': duration}
+            if run_error:
+                status_extra['error'] = str(run_error)
+                status_extra['error_type'] = type(run_error).__name__
+            await self._persist_task_metadata(task, task_status, extra=status_extra)
             last_output = final_result if isinstance(final_result, NodeMessage) else None
             await self._emit_lifecycle_event(
                 GraphLifecycleEvent.AFTER_RUN,
@@ -212,6 +288,7 @@ class Graph(BaseGraph):
         self._prepare_runtime()
         await self.state.initialize()
         await self._configure_event_edges()
+        await self._persist_task_metadata(task, 'running', extra={'started_at': time.time()})
         # Persist campaign metadata for downstream nodes/telemetry
         campaign_info = getattr(task, 'campaign', None)
         if campaign_info and self._state_enabled:
@@ -414,6 +491,73 @@ class Graph(BaseGraph):
         finally:
             self._running_nodes = None  # Clear after completion
             await self._cleanup_async_helpers()
+
+    async def run_tasks(
+        self,
+        scheduler: TaskScheduler,
+        *,
+        continue_on_error: bool = False,
+        on_task_completed: Callable[[Task, Any], Awaitable[None] | None] | None = None,
+        on_task_failed: Callable[[Task, Exception], Awaitable[None] | None] | None = None,
+        usage_provider: Callable[[Task, Any], Awaitable[dict[str, float] | None] | dict[str, float] | None] | None = None,
+    ) -> TaskBatchResult:
+        """Execute tasks defined in a scheduler respecting dependencies and budgets."""
+
+        results = TaskBatchResult()
+        while True:
+            task = scheduler.acquire_next_task()
+            if task is None:
+                break
+            if not task.task_id:
+                raise ValueError("Scheduled tasks must define task_id")
+            task_id = task.task_id
+            start_time = time.perf_counter()
+            try:
+                outcome = await self.run(task)
+            except Exception as exc:
+                scheduler.mark_failed(task_id)
+                results.failed[task_id] = exc
+                await _call_optional(on_task_failed, task, exc)
+                if not continue_on_error:
+                    raise
+                continue
+
+            duration = time.perf_counter() - start_time
+            usage = {'seconds': duration, 'tokens': 0, 'cost': 0.0}
+            if usage_provider:
+                user_usage = await _call_optional(usage_provider, task, outcome) or {}
+                if isinstance(user_usage, dict):
+                    usage.update({k: user_usage[k] for k in ('tokens', 'seconds', 'cost') if k in user_usage})
+            try:
+                scheduler.record_campaign_usage(
+                    task,
+                    tokens=int(usage.get('tokens') or 0),
+                    seconds=float(usage.get('seconds') or 0.0),
+                    cost=float(usage.get('cost') or 0.0),
+                )
+            except CampaignBudgetError as budget_err:
+                scheduler.mark_failed(task_id)
+                results.failed[task_id] = budget_err
+                await _call_optional(on_task_failed, task, budget_err)
+                if not continue_on_error:
+                    raise
+                continue
+
+            scheduler.mark_completed(task_id)
+            results.completed[task_id] = outcome
+            await _call_optional(on_task_completed, task, outcome)
+
+        pending = [task_id for task_id in scheduler.pending if task_id not in results.failed]
+        if pending:
+            error = TaskDependencyError(
+                "Unresolved task dependencies prevented execution: " + ", ".join(sorted(pending))
+            )
+            for task_id in pending:
+                results.failed.setdefault(task_id, error)
+            if not continue_on_error:
+                raise error
+
+        return results
 
     async def _monitor_idle_and_shutdown(self) -> None:
         """Monitor nodes for idle state and automatically shutdown when all nodes are idle.

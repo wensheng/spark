@@ -1,16 +1,33 @@
-"""
-Tasks for the graphs.
-"""
+"""Task metadata, dependency scheduling, and campaign tracking."""
 
 from __future__ import annotations
 
 from collections import deque
+from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any, Deque, Iterable
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from spark.nodes.types import NodeMessage
+
+
+@dataclass(slots=True)
+class TaskBatchResult:
+    """Aggregate result for scheduled task execution."""
+
+    completed: dict[str, Any] = field(default_factory=dict)
+    failed: dict[str, Exception] = field(default_factory=dict)
+
+    def raise_for_errors(self) -> None:
+        """Raise the first error if any tasks failed."""
+
+        if not self.failed:
+            return
+        task_id, error = next(iter(self.failed.items()))
+        raise RuntimeError(
+            f"{len(self.failed)} task(s) failed; first failure from task '{task_id}'"
+        ) from error
 
 
 class TaskType(StrEnum):
