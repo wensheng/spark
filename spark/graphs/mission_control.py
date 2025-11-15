@@ -5,11 +5,17 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Callable, Iterable, Optional, Sequence
+import inspect
+from typing import Any, Awaitable, Callable, Iterable, Optional, Sequence
 
 from spark.graphs.hooks import GraphLifecycleEvent
 from spark.graphs.graph import Graph
 from spark.nodes.nodes import Node
+
+try:  # Optional telemetry dependency
+    from spark.telemetry import EventType
+except ImportError:  # pragma: no cover - optional dep
+    EventType = None
 
 
 class PlanStepStatus(str, Enum):
@@ -55,6 +61,36 @@ class MissionPlan:
             )
         return payload
 
+    @classmethod
+    def from_snapshot(cls, snapshot: list[dict[str, Any]]) -> "MissionPlan":
+        steps: list[PlanStep] = []
+        for raw in snapshot:
+            steps.append(
+                PlanStep(
+                    id=raw['id'],
+                    description=raw.get('description', raw['id']),
+                    status=PlanStepStatus(raw.get('status', PlanStepStatus.PENDING.value)),
+                    depends_on=list(raw.get('depends_on') or []),
+                )
+            )
+        return MissionPlan(steps)
+
+    def render_text(self) -> str:
+        """Return a human-readable view of the plan status."""
+
+        symbols = {
+            PlanStepStatus.PENDING: '[ ]',
+            PlanStepStatus.IN_PROGRESS: '[>]',
+            PlanStepStatus.COMPLETED: '[x]',
+            PlanStepStatus.BLOCKED: '[!]',
+        }
+        lines = []
+        for step in self.steps:
+            icon = symbols.get(step.status, '[?]')
+            deps = f" deps={','.join(step.depends_on)}" if step.depends_on else ''
+            lines.append(f"{icon} {step.id}: {step.description}{deps}")
+        return "\n".join(lines)
+
     def get_next_step(self) -> Optional[PlanStep]:
         """Return the next pending step whose dependencies are satisfied."""
         completed = {step.id for step in self.steps if step.status == PlanStepStatus.COMPLETED}
@@ -76,6 +112,15 @@ class MissionPlan:
         if target:
             target.status = PlanStepStatus.COMPLETED
 
+@dataclass(slots=True)
+class PlanAdaptiveContext:
+    """Context data for adaptive plan hooks."""
+
+    graph: Graph
+    plan: MissionPlan
+    step: PlanStep
+    event: str  # 'step_started' | 'step_completed'
+
 
 class PlanManager:
     """Registers lifecycle hooks to keep a mission plan in sync with graph execution."""
@@ -86,10 +131,14 @@ class PlanManager:
         *,
         state_key: str = "mission_plan",
         auto_advance: bool = True,
+        telemetry_topic: str | None = None,
+        adaptive_hook: Callable[[PlanAdaptiveContext], Awaitable[None] | None] | None = None,
     ) -> None:
         self.plan = plan
         self.state_key = state_key
         self.auto_advance = auto_advance
+        self.telemetry_topic = telemetry_topic
+        self.adaptive_hook = adaptive_hook
 
     def attach(self, graph: "Graph") -> None:  # type: ignore[name-defined]
         """Attach lifecycle hooks to a graph."""
@@ -97,12 +146,23 @@ class PlanManager:
         graph.register_hook(GraphLifecycleEvent.BEFORE_ITERATION, self._before_iteration)
         graph.register_hook(GraphLifecycleEvent.ITERATION_COMPLETE, self._after_iteration)
 
-    async def _persist(self, graph: "Graph") -> None:  # type: ignore[name-defined]
+    async def _emit_plan_snapshot(self, graph: "Graph") -> None:  # type: ignore[name-defined]
+        snapshot = self.plan.to_snapshot()
         if getattr(graph, "_state_enabled", False):
-            await graph.state.set(self.state_key, self.plan.to_snapshot())
+            await graph.state.set(self.state_key, snapshot)
+        if self.telemetry_topic:
+            await graph.event_bus.publish(self.telemetry_topic, {'plan': snapshot})
+        telemetry_manager = getattr(graph, '_telemetry_manager', None)
+        if getattr(graph, '_telemetry_enabled', False) and telemetry_manager and EventType:
+            telemetry_manager.record_event(
+                type=EventType.GRAPH_PROGRESS,
+                name='Mission plan updated',
+                trace_id=getattr(telemetry_manager, 'current_trace_id', None),
+                attributes={'plan': snapshot},
+            )
 
     async def _before_run(self, ctx) -> None:
-        await self._persist(ctx.graph)
+        await self._emit_plan_snapshot(ctx.graph)
 
     async def _before_iteration(self, ctx) -> None:
         if not self.auto_advance:
@@ -112,7 +172,8 @@ class PlanManager:
             next_step = self.plan.get_next_step()
             if next_step:
                 next_step.status = PlanStepStatus.IN_PROGRESS
-                await self._persist(ctx.graph)
+                await self._emit_plan_snapshot(ctx.graph)
+                await self._maybe_call_adaptive(ctx.graph, 'step_started', next_step)
 
     async def _after_iteration(self, ctx) -> None:
         if not self.auto_advance:
@@ -120,7 +181,16 @@ class PlanManager:
         active = self.plan.get_active_step()
         if active:
             active.status = PlanStepStatus.COMPLETED
-            await self._persist(ctx.graph)
+            await self._emit_plan_snapshot(ctx.graph)
+            await self._maybe_call_adaptive(ctx.graph, 'step_completed', active)
+
+    async def _maybe_call_adaptive(self, graph: "Graph", event: str, step: PlanStep) -> None:
+        if not self.adaptive_hook:
+            return
+        ctx = PlanAdaptiveContext(graph=graph, plan=self.plan, step=step, event=event)
+        result = self.adaptive_hook(ctx)
+        if inspect.isawaitable(result):
+            await result
 
 
 class GuardrailBreachError(RuntimeError):
@@ -157,16 +227,18 @@ class BudgetGuardrail(Guardrail):
 
     events = (GraphLifecycleEvent.BEFORE_RUN, GraphLifecycleEvent.BEFORE_ITERATION)
 
-    def __init__(self, config: BudgetGuardrailConfig) -> None:
+    def __init__(self, config: BudgetGuardrailConfig, *, state_key: str = 'guardrail_budget') -> None:
         self.config = config
         self._start_time: float | None = None
         self._iteration_count = 0
+        self._state_key = state_key
 
     async def handle(self, ctx) -> None:
         event = ctx.metadata.get("event") if ctx.metadata else None
         if event == GraphLifecycleEvent.BEFORE_RUN.value or ctx.iteration_index == -1:
             self._start_time = time.time()
             self._iteration_count = 0
+            await self._persist_budget(ctx)
             return
 
         self._iteration_count += 1
@@ -182,6 +254,21 @@ class BudgetGuardrail(Guardrail):
                 raise GuardrailBreachError(
                     f"Runtime budget exceeded ({runtime:.2f}s > {self.config.max_runtime_seconds}s)"
                 )
+        await self._persist_budget(ctx)
+
+    async def _persist_budget(self, ctx) -> None:
+        if not getattr(ctx.graph, '_state_enabled', False):
+            return
+        runtime = None
+        if self._start_time is not None:
+            runtime = max(time.time() - self._start_time, 0.0)
+        payload = {
+            'max_iterations': self.config.max_iterations,
+            'iteration_count': self._iteration_count,
+            'max_runtime_seconds': self.config.max_runtime_seconds,
+            'elapsed_seconds': runtime,
+        }
+        await ctx.graph.state.set(self._state_key, payload)
 
 
 class MissionControl:
@@ -191,8 +278,18 @@ class MissionControl:
         self,
         plan: Optional[MissionPlan] = None,
         guardrails: Optional[Iterable[Guardrail]] = None,
+        plan_telemetry_topic: str | None = None,
+        plan_adaptive_hook: Callable[[PlanAdaptiveContext], Awaitable[None] | None] | None = None,
     ) -> None:
-        self.plan_manager = PlanManager(plan) if plan else None
+        self.plan_manager = (
+            PlanManager(
+                plan,
+                telemetry_topic=plan_telemetry_topic,
+                adaptive_hook=plan_adaptive_hook,
+            )
+            if plan
+            else None
+        )
         self.guardrails = list(guardrails or [])
 
     def attach(self, graph: "Graph") -> None:  # type: ignore[name-defined]

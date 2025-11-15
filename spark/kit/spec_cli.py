@@ -25,6 +25,7 @@ import sys
 from typing import Any, Type
 
 from spark.graphs.base import BaseGraph
+from spark.graphs.mission_control import MissionPlan
 from spark.graphs.state_schema import MissionStateModel
 from spark.nodes.serde import graph_to_spec, save_graph_json, load_graph_spec
 from spark.kit.codegen import generate, CodeGenerator
@@ -569,6 +570,28 @@ def cmd_schema_migrate(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_plan_render(args: argparse.Namespace) -> int:
+    """Render a plan snapshot JSON file."""
+
+    try:
+        with open(args.file, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+    except Exception as exc:
+        print(f"Failed to load plan file {args.file}: {exc}", file=sys.stderr)
+        return 2
+
+    snapshot = data
+    if isinstance(data, dict):
+        snapshot = data.get('mission_plan') or data.get('plan') or data.get('steps')
+    if not isinstance(snapshot, list):
+        print('Plan JSON must be a list of steps or contain mission_plan field', file=sys.stderr)
+        return 2
+
+    plan = MissionPlan.from_snapshot(snapshot)
+    print(plan.render_text())
+    return 0
+
+
 # ==============================================================================
 # CLI Parser
 # ==============================================================================
@@ -674,6 +697,11 @@ def build_parser() -> argparse.ArgumentParser:
     psm.add_argument('input', help='Input JSON state file to migrate')
     psm.add_argument('-o', '--output', help='Optional output file (stdout if omitted)')
     psm.set_defaults(func=cmd_schema_migrate)
+
+    # Plan render command
+    ppr = sub.add_parser('plan-render', help='Render a mission plan snapshot to text')
+    ppr.add_argument('file', help='Path to plan snapshot JSON file')
+    ppr.set_defaults(func=cmd_plan_render)
 
     return p
 
