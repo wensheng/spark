@@ -424,6 +424,15 @@ class SpecLoader:
                     priority=edge_spec.priority,
                     description=edge_spec.description
                 )
+                if edge_spec.delay_seconds is not None:
+                    edge.delay_seconds = edge_spec.delay_seconds
+                if edge_spec.event_topic:
+                    edge.event_topic = edge_spec.event_topic
+                    if edge_spec.event_filter:
+                        if isinstance(edge_spec.event_filter, str):
+                            edge.event_filter = EdgeCondition(expr=edge_spec.event_filter)
+                        else:
+                            edge.event_filter = self.load_edge_condition(edge_spec.event_filter)
                 edge.id = edge_spec.id
                 edges.append(edge)
 

@@ -533,8 +533,8 @@ def _collect_nodes_from_edges(edges: List[Edge]) -> List[BaseNode]:
     return [nodes[k] for k in sorted(nodes.keys())]
 
 
-def _edge_condition_to_spec(edge: Edge) -> Optional[ConditionSpec]:
-    cond = edge.condition
+def _condition_to_spec(condition: Optional[Any]) -> Optional[ConditionSpec]:
+    cond = condition
     if cond is None:
         return None
     # Prefer equals/expr if set
@@ -556,6 +556,10 @@ def _edge_condition_to_spec(edge: Edge) -> Optional[ConditionSpec]:
     except Exception:
         rep = '<callable>'
     return ConditionSpec(kind='python', python_repr=rep)
+
+
+def _edge_condition_to_spec(edge: Edge) -> Optional[ConditionSpec]:
+    return _condition_to_spec(getattr(edge, 'condition', None))
 
 
 def node_to_spec(node: BaseNode) -> NodeSpec:
@@ -605,6 +609,9 @@ def edge_to_spec(edge: Edge) -> Optional[EdgeSpec]:
         description=edge.description or None,
         priority=getattr(edge, 'priority', 0) or 0,
         condition=cond,
+        delay_seconds=getattr(edge, 'delay_seconds', None),
+        event_topic=getattr(edge, 'event_topic', None),
+        event_filter=_condition_to_spec(getattr(edge, 'event_filter', None)),
     )
 
 

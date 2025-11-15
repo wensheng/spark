@@ -369,7 +369,27 @@ class Graph(BaseGraph):
             initial_run = True
             iteration_index = 0
 
-            while active_nodes:
+            while (
+                active_nodes
+                or not self._delayed_ready.empty()
+                or self._has_pending_delay_tasks()
+                or self._has_pending_event_messages()
+            ):
+                if not active_nodes:
+                    if not self._delayed_ready.empty():
+                        active_nodes.update(self._drain_delayed_successors())
+                        continue
+                    if self._has_pending_delay_tasks():
+                        try:
+                            successor = await self._delayed_ready.get()
+                        except asyncio.CancelledError:
+                            break
+                        active_nodes.add(successor)
+                        continue
+                    if self._has_pending_event_messages():
+                        await asyncio.sleep(0)
+                        continue
+                    break
                 processed_nodes = list(active_nodes)
                 active_nodes = set()
                 jobs = []
@@ -423,14 +443,10 @@ class Graph(BaseGraph):
                         if should_schedule:
                             active_nodes.add(successor_node)
 
-                while not active_nodes and self._delayed_ready.empty():
-                    if not self._has_pending_delay_tasks():
-                        break
-                    try:
-                        successor = await self._delayed_ready.get()
-                    except asyncio.CancelledError:
-                        break
-                    active_nodes.add(successor)
+                for node in processed_nodes:
+                    pending = getattr(node, '_state', {}).get('pending_inputs')
+                    if pending and len(pending) > 0:
+                        active_nodes.add(node)
 
                 delayed_ready = self._drain_delayed_successors()
                 active_nodes.update(delayed_ready)
@@ -860,9 +876,11 @@ class Graph(BaseGraph):
                 if successor is None:
                     continue
                 payload = getattr(message, 'payload', message)
-                if edge.event_filter and not self._event_filter_matches(edge.event_filter, payload):
+                metadata = dict(getattr(message, 'metadata', {}) or {})
+                metadata.setdefault('topic', edge.event_topic)
+                if edge.event_filter and not self._event_filter_matches(edge.event_filter, payload, metadata):
                     continue
-                node_message = payload if isinstance(payload, NodeMessage) else NodeMessage(content=payload, metadata={})
+                node_message = self._wrap_event_message(payload, metadata)
                 successor.enqueue_input(node_message)
                 await self._delayed_ready.put(successor)
         except asyncio.CancelledError:
@@ -872,9 +890,26 @@ class Graph(BaseGraph):
         finally:
             await subscription.close()
 
-    def _event_filter_matches(self, condition: EdgeCondition, payload: Any) -> bool:
+    def _wrap_event_message(self, payload: Any, metadata: dict[str, Any]) -> NodeMessage:
+        event_info = dict(metadata)
+        if isinstance(payload, NodeMessage):
+            cloned = payload.model_copy(deep=True)
+            current_metadata = dict(cloned.metadata or {})
+            current_metadata.setdefault('event', event_info)
+            cloned.metadata = current_metadata
+            return cloned
+        return NodeMessage(content=payload, metadata={'event': event_info})
+
+    def _event_filter_matches(self, condition: EdgeCondition, payload: Any, metadata: dict[str, Any]) -> bool:
+        value = payload.content if isinstance(payload, NodeMessage) else payload
+        envelope: dict[str, Any]
+        if isinstance(value, dict):
+            envelope = dict(value)
+            envelope.setdefault('_event', metadata)
+        else:
+            envelope = {'value': value, '_event': metadata}
         dummy = SimpleNamespace()
-        dummy.outputs = NodeMessage(content=payload, metadata={})
+        dummy.outputs = NodeMessage(content=envelope, metadata={})
         return condition.check(dummy)  # type: ignore[arg-type]
 
     def _drain_delayed_successors(self) -> set[BaseNode]:
@@ -910,6 +945,17 @@ class Graph(BaseGraph):
 
     def _has_pending_delay_tasks(self) -> bool:
         return any(not task.done() for task in self._delay_tasks)
+
+    def _has_pending_event_messages(self) -> bool:
+        for subscription in self._event_subscriptions:
+            channel = getattr(subscription, '_channel', None)
+            if channel is None:
+                continue
+            empty_fn = getattr(channel, 'empty', None)
+            if callable(empty_fn) and not empty_fn():
+                return True
+        return False
+
 
     async def _cancel_tasks(self, tasks: list[asyncio.Task]) -> None:
         if not tasks:

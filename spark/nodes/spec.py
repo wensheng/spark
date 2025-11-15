@@ -916,6 +916,15 @@ class EdgeSpec(BaseModel):
     fanout_behavior: Literal['evaluate_all', 'first_match'] = 'evaluate_all'
     """Fan-out behavior (Spark always uses 'evaluate_all')"""
 
+    delay_seconds: float | None = None
+    """Optional delay before forwarding payloads."""
+
+    event_topic: Optional[str] = None
+    """Event bus topic for event-driven edges."""
+
+    event_filter: Optional[Union[str, ConditionSpec]] = None
+    """Optional condition applied to event payloads."""
+
     @model_validator(mode='before')
     @classmethod
     def normalize_aliases(cls, data: Any) -> Any:

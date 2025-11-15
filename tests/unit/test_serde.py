@@ -285,6 +285,40 @@ async def test_graph_to_spec_with_graph_state():
     assert graph_spec.graph_state.checkpointing is None
 
 
+def test_graph_to_spec_includes_advanced_edges():
+    class PublisherNode(Node):
+        async def process(self, context: ExecutionContext) -> Any:  # type: ignore[override]
+            await self.publish_event('alerts', {'status': 'ready'})
+            return {'status': 'ready'}
+
+    class SinkNode(Node):
+        async def process(self, context: ExecutionContext) -> Any:  # type: ignore[override]
+            return context.inputs
+
+    publisher = PublisherNode()
+    timer_sink = SinkNode()
+    event_sink = SinkNode()
+
+    publisher.on_timer(5.0) >> timer_sink
+    publisher.on_event('alerts', status='ready') >> event_sink
+
+    graph = Graph(start=publisher)
+    spec = graph_to_spec(graph)
+
+    timer_edges = [edge for edge in spec.edges if edge.delay_seconds]
+    assert timer_edges and timer_edges[0].delay_seconds == 5.0
+
+    event_edges = [edge for edge in spec.edges if edge.event_topic == 'alerts']
+    assert event_edges and event_edges[0].event_filter is not None
+    assert event_edges[0].event_filter.kind == 'equals'
+
+    loader = SpecLoader(import_policy='allow_all')
+    rehydrated = loader.load_graph(spec)
+    loaded_event_edge = next(edge for edge in rehydrated.edges if edge.event_topic == 'alerts')
+    assert loaded_event_edge.event_filter is not None
+    assert loaded_event_edge.event_filter.equals == {'status': 'ready'}
+
+
 # ==============================================================================
 # SpecLoader Tests
 # ==============================================================================

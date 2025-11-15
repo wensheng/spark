@@ -247,65 +247,87 @@ class BaseNode(ABC):
             raise RuntimeError('Event bus is not attached to this node')
         return await self.event_bus.subscribe(topic)
 
-    def on(self, condition: Optional[Union[str, 'EdgeCondition']] = None, expr: Optional[str] = None, priority: int = 0, **equals: Any) -> 'Edge':
-        """Create a conditional edge without specifying the target node yet.
+    def _normalize_edge_condition(
+        self,
+        *,
+        condition: Optional[Union[str, 'EdgeCondition']] = None,
+        expr: Optional[str] = None,
+        equals: Optional[dict[str, Any]] = None,
+        allow_empty: bool = False,
+    ) -> Optional['EdgeCondition']:
+        """Normalize heterogeneous inputs into an `EdgeCondition`."""
 
-        Args:
-            condition: Expression string or EdgeCondition (no callables allowed)
-            expr: Shortcut for expr-based condition
-            priority: Edge priority (higher = evaluated first, default 0)
-            **equals: Shortcut for equals-based condition (e.g., action='search')
-
-        Returns:
-            Edge with condition set, to be connected with >> operator
-
-        Examples:
-            node.on(expr="$.outputs.score > 0.5") >> high_node
-            node.on(action='search') >> search_node
-            node.on(EdgeCondition(expr="$.outputs.ready")) >> process_node
-
-        Note:
-            Lambda/callable conditions are NOT supported for spec compatibility.
-            Use expr or equals instead.
-
-        Raises:
-            TypeError: If a callable is provided
-            ValueError: If no condition is provided
-        """
-        # If equals kwargs provided, use them
         if equals:
-            edge = Edge(from_node=self, condition=EdgeCondition(equals=dict(equals)), priority=priority)
-            return edge
-
-        # If expr provided, use it
+            return EdgeCondition(equals=dict(equals))
         if expr:
-            edge = Edge(from_node=self, condition=EdgeCondition(expr=expr), priority=priority)
-            return edge
-
-        # Handle condition parameter
+            return EdgeCondition(expr=expr)
         if condition is None:
-            # Allow no condition if equals or expr will be provided later
-            # This supports: edge = node.on(); edge >> next_node
-            edge = Edge(from_node=self, condition=EdgeCondition(), priority=priority)
-            return edge
-
+            return None if allow_empty else EdgeCondition()
         if isinstance(condition, str):
-            edge = Edge(from_node=self, condition=EdgeCondition(expr=condition), priority=priority)
-            return edge
-
+            return EdgeCondition(expr=condition)
         if isinstance(condition, EdgeCondition):
-            edge = Edge(from_node=self, condition=condition, priority=priority)
-            return edge
-
-        # Reject callables
+            return condition
         if callable(condition):
             raise TypeError(
                 "Lambda/callable conditions are not supported for spec compatibility. "
                 "Use expr='...' or equals={...} instead.\n"
                 "Example: node.on(expr='$.outputs.score > 0.5') >> next_node"
             )
-
         raise TypeError(f"Invalid condition type: {type(condition)}")
+
+    def on(self, condition: Optional[Union[str, 'EdgeCondition']] = None, expr: Optional[str] = None, priority: int = 0, **equals: Any) -> 'Edge':
+        """Create a conditional edge without specifying the target node yet."""
+
+        normalized = self._normalize_edge_condition(
+            condition=condition,
+            expr=expr,
+            equals=equals if equals else None,
+        )
+        return Edge(from_node=self, condition=normalized or EdgeCondition(), priority=priority)
+
+    def on_timer(
+        self,
+        seconds: float,
+        *,
+        condition: Optional[Union[str, 'EdgeCondition']] = None,
+        expr: Optional[str] = None,
+        priority: int = 0,
+        **equals: Any,
+    ) -> 'Edge':
+        """Create an edge that fires after the given delay."""
+
+        if seconds < 0:
+            raise ValueError("Timer delay must be non-negative")
+        normalized = self._normalize_edge_condition(
+            condition=condition,
+            expr=expr,
+            equals=equals if equals else None,
+        )
+        edge = Edge(from_node=self, condition=normalized or EdgeCondition(), priority=priority)
+        edge.delay_seconds = seconds
+        return edge
+
+    def on_event(
+        self,
+        topic: str,
+        *,
+        event_filter: Optional[Union[str, 'EdgeCondition']] = None,
+        expr: Optional[str] = None,
+        priority: int = 0,
+        **equals: Any,
+    ) -> 'Edge':
+        """Create an edge that activates when an event is published."""
+
+        edge = Edge(from_node=self, condition=EdgeCondition(), priority=priority)
+        edge.event_topic = topic
+        normalized = self._normalize_edge_condition(
+            condition=event_filter,
+            expr=expr,
+            equals=equals if equals else None,
+            allow_empty=True,
+        )
+        edge.event_filter = normalized
+        return edge
 
     def __rshift__(self, right: Union['BaseNode', 'Chain']) -> 'Chain':
         """Overload >> operator to add a next node / edge / chain."""
