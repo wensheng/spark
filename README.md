@@ -1,8 +1,8 @@
 # Spark
 
-Spark is an Python AI Development Kit(ADK).
+Spark is an Python ADK (AI Development Kit).
 
-## Get started with Spark
+## Get started
 
     pip install spark
 

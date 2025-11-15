@@ -4,6 +4,9 @@ Graphs are the top-level construct in Spark, defining the complete blueprint of 
 
 import asyncio
 import copy
+import logging
+import time
+from collections.abc import Iterable
 from typing import Any, Callable, Coroutine, Optional, final
 
 from spark.nodes.base import BaseNode, Edge
@@ -14,6 +17,7 @@ from spark.nodes.types import ExecutionContext, NodeMessage
 from spark.nodes.channels import ChannelMessage, ForwardingChannel, BaseChannel
 from spark.graphs.event_bus import GraphEventBus
 from spark.graphs.graph_state import GraphState
+from spark.graphs.hooks import GraphLifecycleContext, GraphLifecycleEvent, HookFn, ensure_coroutine
 
 # Import telemetry (optional)
 try:
@@ -26,6 +30,8 @@ except ImportError:
     TelemetryConfig = None  # type: ignore
     SpanStatus = None  # type: ignore
 
+logger = logging.getLogger(__name__)
+
 
 class Graph(BaseGraph):
     """
@@ -36,6 +42,9 @@ class Graph(BaseGraph):
 
     def __init__(self, *edges: Edge, **kwargs) -> None:
         """Initialize the Graph with edges and optional parameters."""
+        lifecycle_hooks = kwargs.pop('lifecycle_hooks', None)
+        state_backend = kwargs.pop('state_backend', None)
+        mission_control = kwargs.pop('mission_control', None)
         super().__init__(*edges, **kwargs)
         self._running_nodes: set[BaseNode] | None = None
         self._auto_shutdown_enabled: bool = kwargs.get('auto_shutdown', True)
@@ -46,7 +55,7 @@ class Graph(BaseGraph):
 
         # Initialize graph state
         initial_state = kwargs.get('initial_state')
-        self.state = GraphState(initial_state)
+        self.state = GraphState(initial_state, backend=state_backend)
         self._state_enabled: bool = kwargs.get('enable_graph_state', True)
 
         # Initialize telemetry
@@ -58,6 +67,46 @@ class Graph(BaseGraph):
             self._telemetry_enabled = self._telemetry_config.enabled
 
         self._attach_event_bus_to_nodes()
+        self._lifecycle_hooks: dict[GraphLifecycleEvent, list[HookFn]] = {event: [] for event in GraphLifecycleEvent}
+        if lifecycle_hooks:
+            for event, handlers in lifecycle_hooks.items():
+                handler_list = handlers if isinstance(handlers, Iterable) else [handlers]
+                for handler in handler_list:
+                    self.register_hook(event, handler)
+        if mission_control:
+            mission_control.attach(self)
+
+    def register_hook(self, event: GraphLifecycleEvent | str, hook: HookFn) -> None:
+        """Register a lifecycle hook handler for the graph runtime."""
+        normalized = event if isinstance(event, GraphLifecycleEvent) else GraphLifecycleEvent(event)
+        self._lifecycle_hooks.setdefault(normalized, []).append(hook)
+
+    async def _emit_lifecycle_event(
+        self,
+        event: GraphLifecycleEvent,
+        task: Task,
+        iteration_index: int = -1,
+        last_output: NodeMessage | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        """Emit lifecycle events to registered hooks."""
+        handlers = self._lifecycle_hooks.get(event)
+        if not handlers:
+            return
+        context = GraphLifecycleContext(
+            graph=self,
+            task=task,
+            iteration_index=iteration_index,
+            last_output=last_output,
+            metadata=dict(metadata or {}),
+        )
+        context.metadata.setdefault('event', event.value)
+        for handler in handlers:
+            try:
+                await ensure_coroutine(handler, context)
+            except Exception:
+                logger.exception("Lifecycle hook failed for event=%s handler=%s", event, handler)
+                raise
 
     @final
     async def run(self, arg: Any = None) -> Any:
@@ -86,18 +135,46 @@ class Graph(BaseGraph):
 
         # Check if timeout is configured
         timeout_seconds = task.budget.max_seconds if task.budget.max_seconds > 0 else None
+        run_metadata = {
+            'task_type': task.type.value if hasattr(task.type, 'value') else str(task.type),
+            'graph_id': self.id,
+        }
+        await self._emit_lifecycle_event(GraphLifecycleEvent.BEFORE_RUN, task, metadata=run_metadata)
 
+        final_result: Any = None
+        run_error: Exception | None = None
         try:
             if timeout_seconds:
                 # Run with timeout
-                return await asyncio.wait_for(self._run_internal(task), timeout=timeout_seconds)
+                final_result = await asyncio.wait_for(self._run_internal(task), timeout=timeout_seconds)
             else:
                 # Run without timeout
-                return await self._run_internal(task)
+                final_result = await self._run_internal(task)
+            return final_result
         except asyncio.TimeoutError as e:
             # Timeout exceeded, stop all nodes gracefully
             self.stop_all_nodes()
-            raise TimeoutError(f"Graph execution exceeded max_seconds budget of {timeout_seconds} seconds") from e
+            new_exc = TimeoutError(f"Graph execution exceeded max_seconds budget of {timeout_seconds} seconds")
+            run_error = new_exc
+            raise new_exc from e
+        except Exception as exc:
+            run_error = exc
+            raise
+        finally:
+            after_metadata = dict(run_metadata)
+            after_metadata['timeout_configured'] = bool(timeout_seconds)
+            if run_error:
+                after_metadata['error'] = str(run_error)
+                after_metadata['error_type'] = type(run_error).__name__
+            if final_result is not None:
+                after_metadata['result'] = final_result
+            last_output = final_result if isinstance(final_result, NodeMessage) else None
+            await self._emit_lifecycle_event(
+                GraphLifecycleEvent.AFTER_RUN,
+                task,
+                last_output=last_output,
+                metadata=after_metadata,
+            )
 
     async def _run_internal(self, task: Task) -> Any:
         """Internal run implementation without timeout handling."""
@@ -109,6 +186,7 @@ class Graph(BaseGraph):
             self._channels_configured = False
 
         self._prepare_runtime()
+        await self.state.initialize()
 
         # Start telemetry trace if enabled
         trace = None
@@ -182,12 +260,24 @@ class Graph(BaseGraph):
         try:
             active_nodes: set[BaseNode] = {self.start}
             initial_run = True
+            iteration_index = 0
 
             while active_nodes:
                 processed_nodes = list(active_nodes)
                 active_nodes = set()
                 jobs = []
                 current_data = inputs if initial_run else NodeMessage(content='', metadata={})
+                before_metadata = {
+                    'active_nodes': len(processed_nodes),
+                    'initial_run': initial_run,
+                }
+                await self._emit_lifecycle_event(
+                    GraphLifecycleEvent.BEFORE_ITERATION,
+                    task,
+                    iteration_index=iteration_index,
+                    last_output=last_output,
+                    metadata=before_metadata,
+                )
 
                 for node in processed_nodes:
                     run_input = node.pop_ready_input()
@@ -218,6 +308,27 @@ class Graph(BaseGraph):
                         should_schedule = await successor_node.receive_from_parent(node)
                         if should_schedule:
                             active_nodes.add(successor_node)
+                after_metadata = {
+                    'active_nodes': len(processed_nodes),
+                    'initial_run': before_metadata['initial_run'],
+                    'jobs_run': len(jobs),
+                    'scheduled_successors': len(active_nodes),
+                }
+                await self._emit_lifecycle_event(
+                    GraphLifecycleEvent.AFTER_ITERATION,
+                    task,
+                    iteration_index=iteration_index,
+                    last_output=last_output,
+                    metadata=after_metadata,
+                )
+                await self._emit_lifecycle_event(
+                    GraphLifecycleEvent.ITERATION_COMPLETE,
+                    task,
+                    iteration_index=iteration_index,
+                    last_output=last_output,
+                    metadata=after_metadata,
+                )
+                iteration_index += 1
 
             if last_output is None:
                 if self.end_node and isinstance(self.end_node.outputs, NodeMessage):
@@ -430,13 +541,15 @@ class Graph(BaseGraph):
         """
         await self.state.update(updates)
 
-    def reset_state(self, new_state: dict[str, Any] | None = None) -> None:
+    def reset_state(self, new_state: dict[str, Any] | None = None, *, preserve_backend: bool = True) -> None:
         """Reset graph state (useful between runs).
 
         Args:
             new_state: Optional new state dictionary. If None, state is cleared.
+            preserve_backend: Whether to re-use the existing state backend.
         """
-        self.state = GraphState(new_state)
+        backend = getattr(self.state, '_backend', None) if preserve_backend else None
+        self.state = GraphState(new_state, backend=backend)
 
     def get_state_snapshot(self) -> dict[str, Any]:
         """Get a snapshot of current state.
@@ -445,6 +558,19 @@ class Graph(BaseGraph):
             A shallow copy of the state dictionary.
         """
         return self.state.get_snapshot()
+
+    async def checkpoint_state(self) -> dict[str, Any]:
+        """Create a checkpoint containing the graph state."""
+        return {
+            'graph_id': self.id,
+            'timestamp': time.time(),
+            'state': self.state.get_snapshot(),
+        }
+
+    async def restore_state(self, snapshot: dict[str, Any]) -> None:
+        """Restore state from a checkpoint snapshot."""
+        state_payload = snapshot.get('state') if isinstance(snapshot, dict) else None
+        await self.state.reset(state_payload or {})
 
 
 class SubgraphNode(Node):

@@ -605,14 +605,15 @@ def graph_to_spec(graph: BaseGraph, *, spark_version: str = '2.0') -> GraphSpec:
     graph_state = getattr(graph, 'state', None)
     if graph_state:
         try:
-            initial_state = getattr(graph_state, '_state', {})
-            concurrent_mode = getattr(graph_state, '_concurrent_mode', False)
+            initial_state = graph_state.get_snapshot()
+            backend = getattr(graph_state, '_backend', None)
+            concurrent_mode = bool(getattr(backend, '_concurrent_mode', False))
             graph_state_spec = GraphStateSpec(
-                initial_state=dict(initial_state) if initial_state else {},
-                concurrent_mode=concurrent_mode
+                initial_state=initial_state,
+                concurrent_mode=concurrent_mode,
             )
         except Exception as e:
-            logger.debug(f"Could not serialize GraphState: {e}")
+            logger.debug(f"Could not serialize GraphState: %s", e)
 
     # Serialize GraphEventBus if present
     event_bus_spec = None

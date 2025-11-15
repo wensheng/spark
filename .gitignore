@@ -2,3 +2,4 @@ __pycache__/
 dist/
 .vscode/
 poetry.lock
+.ipynb_checkpoints/

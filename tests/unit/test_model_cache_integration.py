@@ -19,11 +19,13 @@ class OutputSchema(BaseModel):
 
 
 @pytest.fixture
-def temp_cache_dir(tmp_path):
+def temp_cache_dir(tmp_path, monkeypatch):
     """Create a temporary cache directory for testing."""
     cache_dir = tmp_path / "test_model_cache"
     cache_dir.mkdir()
-    return cache_dir
+    monkeypatch.setenv("SPARK_CACHE_DIR", str(cache_dir))
+    yield cache_dir
+    monkeypatch.delenv("SPARK_CACHE_DIR", raising=False)
 
 
 @pytest.fixture

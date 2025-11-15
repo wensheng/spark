@@ -390,17 +390,19 @@ class SpecLoader:
                 edge.id = edge_spec.id
                 edges.append(edge)
 
+            initial_state = None
+            if graph_spec.graph_state:
+                initial_state = graph_spec.graph_state.initial_state or {}
+
             # Create graph
-            graph = Graph(*edges, start=start_node)
+            graph = Graph(*edges, start=start_node, initial_state=initial_state)
             graph.id = graph_spec.id
             if graph_spec.description:
                 graph.description = graph_spec.description
 
             # Setup GraphState if specified
-            if graph_spec.graph_state:
-                graph.state._state.update(graph_spec.graph_state.initial_state)
-                if graph_spec.graph_state.concurrent_mode:
-                    graph.state.enable_concurrent_mode()
+            if graph_spec.graph_state and graph_spec.graph_state.concurrent_mode:
+                graph.state.enable_concurrent_mode()
 
             return graph
 

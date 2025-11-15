@@ -227,6 +227,23 @@ class TestGraphStateIntegration:
         assert await graph.get_state('y') == 1
 
     @pytest.mark.asyncio
+    async def test_checkpoint_and_restore(self):
+        """Checkpoints should capture and restore state snapshots."""
+        node = CounterNode()
+        graph = Graph(start=node, initial_state={'counter': 2})
+
+        await graph.run()
+        checkpoint = await graph.checkpoint_state()
+        assert checkpoint['state']['counter'] == 3
+
+        graph.reset_state({'counter': 0})
+        await graph.run()
+        assert await graph.get_state('counter') == 1
+
+        await graph.restore_state(checkpoint)
+        assert await graph.get_state('counter') == 3
+
+    @pytest.mark.asyncio
     async def test_concurrent_state_access_long_running(self):
         """Test concurrent state access in LONG_RUNNING mode."""
 

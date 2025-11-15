@@ -1,8 +1,60 @@
 """Unit tests for GraphState."""
 
-import pytest
 import asyncio
+from contextlib import asynccontextmanager
+
+import pytest
+
 from spark.graphs.graph_state import GraphState
+from spark.graphs.state_backend import InMemoryStateBackend, StateBackend
+
+
+def _is_concurrent(state: GraphState) -> bool:
+    backend = getattr(state, '_backend', None)
+    return bool(getattr(backend, '_concurrent_mode', False))
+
+
+class RecordingBackend(StateBackend):
+    """Simple backend used for testing initialization + persistence."""
+
+    def __init__(self, initial_state: dict | None = None) -> None:
+        super().__init__(initial_state)
+        self._state = dict(initial_state or {})
+        self.initialized = False
+
+    async def initialize(self) -> None:
+        self.initialized = True
+
+    async def get(self, key: str, default=None):
+        return self._state.get(key, default)
+
+    async def set(self, key: str, value) -> None:
+        self._state[key] = value
+
+    async def update(self, updates: dict) -> None:
+        self._state.update(updates)
+
+    async def delete(self, key: str) -> None:
+        self._state.pop(key, None)
+
+    async def has(self, key: str) -> bool:
+        return key in self._state
+
+    async def keys(self) -> list[str]:
+        return list(self._state.keys())
+
+    @asynccontextmanager
+    async def transaction(self):
+        yield self._state
+
+    def snapshot(self) -> dict:
+        return dict(self._state)
+
+    def get_raw_state(self) -> dict:
+        return self._state
+
+    def clear(self) -> None:
+        self._state.clear()
 
 
 class TestThreadSafeGraphState:
@@ -12,7 +64,8 @@ class TestThreadSafeGraphState:
         """Test initialization with no initial state."""
         state = GraphState()
         assert state.get_snapshot() == {}
-        assert not state._concurrent_mode
+        assert isinstance(state._backend, InMemoryStateBackend)
+        assert not _is_concurrent(state)
 
     def test_initialization_with_data(self):
         """Test initialization with initial state."""
@@ -160,13 +213,13 @@ class TestThreadSafeGraphState:
         """Test enabling and disabling concurrent mode."""
         state = GraphState()
 
-        assert not state._concurrent_mode
+        assert not _is_concurrent(state)
 
         state.enable_concurrent_mode()
-        assert state._concurrent_mode
+        assert _is_concurrent(state)
 
         state.disable_concurrent_mode()
-        assert not state._concurrent_mode
+        assert not _is_concurrent(state)
 
     def test_get_snapshot(self):
         """Test get_snapshot returns a copy."""
@@ -253,3 +306,37 @@ class TestThreadSafeGraphState:
         assert await state.get('key1') == 9
         assert await state.get('key2') == 9
         assert await state.get('key3') == 9
+
+    @pytest.mark.asyncio
+    async def test_custom_backend_initialization(self):
+        """Ensure custom backend is initialized and seeded with data."""
+        backend = RecordingBackend()
+        state = GraphState(initial_state={'foo': 'bar'}, backend=backend)
+
+        await state.initialize()
+        assert backend.initialized
+        assert await state.get('foo') == 'bar'
+
+        await state.set('foo', 'baz')
+        assert backend.get_raw_state()['foo'] == 'baz'
+
+    @pytest.mark.asyncio
+    async def test_custom_backend_existing_data(self):
+        """Backend-provided initial state should be readable."""
+        backend = RecordingBackend({'seed': 5})
+        state = GraphState(backend=backend)
+
+        await state.initialize()
+        assert await state.get('seed') == 5
+
+    @pytest.mark.asyncio
+    async def test_custom_backend_snapshot_and_clear(self):
+        """Snapshot and clear should proxy to backend."""
+        backend = RecordingBackend({'alpha': 1})
+        state = GraphState(backend=backend)
+
+        await state.initialize()
+        assert state.get_snapshot() == {'alpha': 1}
+        state.clear()
+        assert state.get_snapshot() == {}
+        assert backend.snapshot() == {}

@@ -1,6 +1,6 @@
 [project]
 name = "Spark"
-version = "0.3.1"
+version = "0.3.2"
 description = "Spark AI Development Kit"
 authors = [{ name = "Wensheng Wang", email = "wenshengwang@gmail.com" }]
 license = { text = "MIT" }

@@ -2,6 +2,8 @@
 
 from abc import ABC, abstractmethod
 import logging
+import os
+from pathlib import Path
 from typing import Any, Optional, Type, TypeVar
 
 from pydantic import BaseModel
@@ -52,8 +54,22 @@ class Model(ABC):
             from spark.models.cache import CacheManager, CacheConfig
 
             config = cache_config or CacheConfig(enabled=True, ttl_seconds=self._cache_ttl_seconds)
+            cache_dir_override = os.getenv("SPARK_CACHE_DIR")
+            if cache_dir_override:
+                config = CacheConfig(
+                    enabled=config.enabled,
+                    cache_dir=Path(cache_dir_override),
+                    ttl_seconds=config.ttl_seconds,
+                    max_cache_size_mb=config.max_cache_size_mb,
+                    cleanup_interval_seconds=config.cleanup_interval_seconds,
+                )
             self._cache_manager = CacheManager.get_instance(config)
-            logger.debug(f"Cache enabled for {self._get_provider_name()} with TTL={self._cache_ttl_seconds}s")
+            logger.debug(
+                "Cache enabled for %s with TTL=%ss (dir=%s)",
+                self._get_provider_name(),
+                self._cache_ttl_seconds,
+                config.cache_dir or "default",
+            )
 
     def _get_from_cache(
         self,
