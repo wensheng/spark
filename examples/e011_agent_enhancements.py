@@ -12,9 +12,19 @@ These features improve performance, observability, and resilience for production
 import asyncio
 import tempfile
 import os
-from spark.agents import Agent, AgentConfig
+from spark.agents import (
+    Agent,
+    AgentConfig,
+    PlanAndSolveStrategy,
+    AgentBudgetConfig,
+    HumanInteractionPolicy,
+    AgentBudgetExceededError,
+    HumanApprovalRequired,
+    AgentStoppedError,
+)
 from spark.models.echo import EchoModel
 from spark.tools.decorator import tool
+from spark.nodes.types import ExecutionContext, NodeMessage
 
 
 # Define some example tools
@@ -346,6 +356,89 @@ async def example_7_budget_management():
 
 
 # ============================================================================
+# Example 8: Plan-First Strategy & Budgets
+# ============================================================================
+
+async def example_8_strategy_and_budgets():
+    """Example 8: Combine plan-first strategies with budget enforcement."""
+    print("\n" + "="*70)
+    print("Example 8: Plan-First Strategy + Budget Guardrails")
+    print("="*70)
+
+    strategy = PlanAndSolveStrategy(
+        plan_steps=["Assess the request", "Draft an approach", "Validate & report"],
+        name="mission-plan",
+    )
+    config = AgentConfig(
+        model=EchoModel(),
+        reasoning_strategy=strategy,
+        budget=AgentBudgetConfig(max_total_cost=0.0002, max_llm_calls=1),
+    )
+    agent = Agent(config=config)
+
+    # Bootstrap the plan (demonstration only; production would use lifecycle hooks)
+    context = ExecutionContext(inputs=NodeMessage(content={}, metadata={}), state=agent.state)
+    await agent._ensure_strategy_plan(context)  # type: ignore[attr-defined]
+    plan_snapshot = agent.state.get('strategy_plan', {})
+
+    print("Generated plan:")
+    for step in plan_snapshot.get('steps', []):
+        print(f"  - {step['id']}: {step['description']} ({step['status']})")
+
+    print("\nRecording budgeted LLM calls...")
+    agent.cost_tracker.record_call('gpt-4o', input_tokens=100, output_tokens=50)
+    try:
+        agent.cost_tracker.record_call('gpt-4o', input_tokens=800, output_tokens=400)
+    except AgentBudgetExceededError as exc:
+        print(f"Budget enforcement triggered: {exc}")
+
+
+# ============================================================================
+# Example 9: Human Interaction Policies
+# ============================================================================
+
+async def example_9_human_policies():
+    """Example 9: Require operator approvals and stop tokens."""
+    print("\n" + "="*70)
+    print("Example 9: Human Interaction Policies")
+    print("="*70)
+
+    policy = HumanInteractionPolicy(
+        require_tool_approval=True,
+        auto_approved_tools=['search_database'],
+        stop_token='maintenance-window',
+    )
+    config = AgentConfig(
+        model=EchoModel(),
+        tools=[search_database, fetch_user_data, calculate_metrics],
+        human_policy=policy,
+    )
+    agent = Agent(config=config)
+
+    print("Requesting approval for 'calculate_metrics'...")
+    try:
+        agent.human_policy_manager.ensure_tool_allowed('calculate_metrics')
+    except HumanApprovalRequired as exc:
+        print(f"  Approval required: {exc}")
+
+    print("Auto-approved tool access:")
+    agent.human_policy_manager.ensure_tool_allowed('search_database')
+    print("  ✓ search_database allowed without prompt")
+
+    print("\nIssuing stop signal...")
+    agent.pause("Scheduled maintenance")
+    try:
+        agent.human_policy_manager.ensure_not_stopped()
+    except AgentStoppedError as exc:
+        print(f"  Agent paused: {exc}")
+
+    print("Clearing stop signal...")
+    agent.resume()
+    agent.human_policy_manager.ensure_not_stopped()
+    print("  ✓ Agent resumed")
+
+
+# ============================================================================
 # Main
 # ============================================================================
 
@@ -356,8 +449,8 @@ async def main():
     print("="*70)
     print("\nDemonstrating:")
     print("  1. Parallel Tool Execution")
-    print("  2. Cost Tracking")
-    print("  3. Agent Checkpointing")
+    print("  2. Cost Tracking & Budget Guardrails")
+    print("  3. Agent Checkpointing & Human Policies")
 
     await example_1_sequential()
     await example_2_parallel()
@@ -366,14 +459,17 @@ async def main():
     await example_5_checkpoint_file()
     await example_6_combined()
     await example_7_budget_management()
+    await example_8_strategy_and_budgets()
+    await example_9_human_policies()
 
     print("\n" + "="*70)
     print("ALL EXAMPLES COMPLETED SUCCESSFULLY!")
     print("="*70)
     print("\nPhase 4 Features Summary:")
     print("  ✓ Parallel Tool Execution - Improve performance")
-    print("  ✓ Cost Tracking - Monitor token usage and API costs")
+    print("  ✓ Cost Tracking & Budgets - Monitor and enforce mission limits")
     print("  ✓ Agent Checkpointing - Save/restore state for resilience")
+    print("  ✓ Human Policies - Require approvals and support stop/resume controls")
     print("\nThe agent system is now production-ready! 🚀")
     print("="*70 + "\n")
 

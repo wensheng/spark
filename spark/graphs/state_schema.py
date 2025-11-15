@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import ClassVar
+
 from pydantic import BaseModel, ConfigDict
 
 
@@ -9,8 +11,8 @@ class MissionStateModel(BaseModel):
     """Base class for declaring structured mission state."""
 
     model_config = ConfigDict(extra='allow')
-    schema_name: str = "mission_state"
-    schema_version: str = "1.0"
+    schema_name: ClassVar[str] = "mission_state"
+    schema_version: ClassVar[str] = "1.0"
 
     @classmethod
     def schema_metadata(cls) -> dict[str, str]:

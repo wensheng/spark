@@ -7,10 +7,104 @@ to follow different patterns like ReAct, Plan-and-Solve, Chain-of-Thought, etc.
 """
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
+from enum import Enum
 from typing import Any, Optional
 import logging
+import time
 
 logger = logging.getLogger(__name__)
+
+
+class StrategyPlanStatus(str, Enum):
+    """Status values for strategy-managed plan steps."""
+
+    PENDING = "pending"
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
+    BLOCKED = "blocked"
+
+
+@dataclass
+class StrategyPlanStep:
+    """Single plan step tracked by a reasoning strategy."""
+
+    id: str
+    description: str
+    status: StrategyPlanStatus = StrategyPlanStatus.PENDING
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            'id': self.id,
+            'description': self.description,
+            'status': self.status.value,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> 'StrategyPlanStep':
+        return cls(
+            id=payload.get('id', ''),
+            description=payload.get('description', ''),
+            status=StrategyPlanStatus(payload.get('status', StrategyPlanStatus.PENDING.value)),
+        )
+
+
+@dataclass
+class StrategyPlan:
+    """A lightweight mission plan owned by a reasoning strategy."""
+
+    name: str = "mission-plan"
+    steps: list[StrategyPlanStep] = field(default_factory=list)
+
+    def get_active_step(self) -> Optional[StrategyPlanStep]:
+        for step in self.steps:
+            if step.status == StrategyPlanStatus.IN_PROGRESS:
+                return step
+        return None
+
+    def get_next_pending(self) -> Optional[StrategyPlanStep]:
+        for step in self.steps:
+            if step.status == StrategyPlanStatus.PENDING:
+                return step
+        return None
+
+    def start(self) -> None:
+        """Ensure the plan has an active step."""
+        if self.get_active_step() is None:
+            next_step = self.get_next_pending()
+            if next_step:
+                next_step.status = StrategyPlanStatus.IN_PROGRESS
+
+    def mark_current_complete(self) -> Optional[StrategyPlanStep]:
+        """Mark the current step complete and move to the next pending one."""
+        active = self.get_active_step()
+        if active:
+            active.status = StrategyPlanStatus.COMPLETED
+            next_step = self.get_next_pending()
+            if next_step:
+                next_step.status = StrategyPlanStatus.IN_PROGRESS
+            return active
+        return None
+
+    def to_payload(self) -> dict[str, Any]:
+        return {'name': self.name, 'steps': [step.to_dict() for step in self.steps]}
+
+    @classmethod
+    def from_payload(cls, payload: dict[str, Any] | None) -> Optional['StrategyPlan']:
+        if not payload:
+            return None
+        steps = [StrategyPlanStep.from_dict(step) for step in payload.get('steps', [])]
+        return cls(name=payload.get('name', 'mission-plan'), steps=steps)
+
+    def summarize(self) -> dict[str, Any]:
+        total = len(self.steps)
+        completed = len([s for s in self.steps if s.status == StrategyPlanStatus.COMPLETED])
+        return {
+            'name': self.name,
+            'total_steps': total,
+            'completed': completed,
+            'remaining': total - completed,
+        }
 
 
 class ReasoningStrategy(ABC):
@@ -71,6 +165,46 @@ class ReasoningStrategy(ABC):
         # Default: ensure history exists
         if 'history' not in state:
             state['history'] = []
+
+    plan_state_key = 'strategy_plan'
+    plan_events_key = 'strategy_plan_events'
+
+    def supports_planning(self) -> bool:
+        """Return True if the strategy produces a structured plan."""
+        return False
+
+    async def generate_plan(self, context: Any | None = None) -> Optional[StrategyPlan]:
+        """Generate a plan for the current mission (override in subclasses)."""
+        return None
+
+    async def update_plan(self, result: Any, state: dict[str, Any]) -> None:
+        """Update plan progress after a reasoning step."""
+        return None
+
+    async def evaluate_progress(self, state: dict[str, Any]) -> Optional[dict[str, Any]]:
+        """Return a progress summary for telemetry."""
+        plan = self._get_plan_from_state(state)
+        return plan.summarize() if plan else None
+
+    def _get_plan_from_state(self, state: dict[str, Any]) -> Optional[StrategyPlan]:
+        payload = state.get(self.plan_state_key)
+        return StrategyPlan.from_payload(payload) if payload else None
+
+    def _save_plan_to_state(self, plan: StrategyPlan, state: dict[str, Any]) -> None:
+        state[self.plan_state_key] = plan.to_payload()
+    def save_plan_to_state(self, plan: StrategyPlan, state: dict[str, Any]) -> None:
+        self._save_plan_to_state(plan, state)
+
+    def _record_plan_event(self, state: dict[str, Any], event: str) -> None:
+        events = state.setdefault(self.plan_events_key, [])
+        events.append({'event': event, 'timestamp': time.time()})
+
+    def has_plan(self, state: dict[str, Any]) -> bool:
+        return self._get_plan_from_state(state) is not None
+
+    def get_plan_payload(self, state: dict[str, Any]) -> Optional[dict[str, Any]]:
+        plan = self._get_plan_from_state(state)
+        return plan.to_payload() if plan else None
 
 
 class NoOpStrategy(ReasoningStrategy):
@@ -329,4 +463,76 @@ class ChainOfThoughtStrategy(ReasoningStrategy):
         Returns:
             List of CoT reasoning steps
         """
+        return state.get('history', [])
+
+
+class PlanAndSolveStrategy(ReasoningStrategy):
+    """Simple plan-first strategy that tracks declared steps."""
+
+    def __init__(
+        self,
+        plan_steps: Optional[list[str]] = None,
+        name: str = "plan-and-solve",
+        auto_start: bool = True,
+    ) -> None:
+        self.plan_steps = plan_steps or [
+            "Understand the request",
+            "Draft an approach",
+            "Validate and summarize findings",
+        ]
+        self.plan_name = name
+        self.auto_start = auto_start
+
+    def supports_planning(self) -> bool:
+        return True
+
+    async def generate_plan(self, context: Any | None = None) -> StrategyPlan:
+        steps = [
+            StrategyPlanStep(
+                id=f"step-{idx + 1}",
+                description=description,
+                status=StrategyPlanStatus.PENDING,
+            )
+            for idx, description in enumerate(self.plan_steps)
+        ]
+        plan = StrategyPlan(name=self.plan_name, steps=steps)
+        if self.auto_start:
+            plan.start()
+        return plan
+
+    async def process_step(
+        self,
+        parsed_output: Any,
+        tool_result_blocks: list[dict[str, Any]],
+        state: dict[str, Any],
+        context: Optional[Any] = None,
+    ) -> None:
+        """Plan strategy keeps lightweight history for templates."""
+        history = state.setdefault('history', [])
+        history.append(
+            {
+                'observation': tool_result_blocks[0] if tool_result_blocks else {},
+                'parsed_output': parsed_output,
+            }
+        )
+
+    async def update_plan(self, result: Any, state: dict[str, Any]) -> None:
+        plan = self._get_plan_from_state(state)
+        if not plan:
+            return
+        completed = plan.mark_current_complete()
+        if completed:
+            self._record_plan_event(state, f"completed:{completed.id}")
+        else:
+            plan.start()
+        self._save_plan_to_state(plan, state)
+
+    def should_continue(self, parsed_output: Any) -> bool:
+        """Plan strategy relies on stop_reason rather than custom looping."""
+        return False
+
+    def get_history(self, state: dict[str, Any]) -> list[dict[str, Any]]:
+        plan = self._get_plan_from_state(state)
+        if plan:
+            return [step.to_dict() for step in plan.steps]
         return state.get('history', [])

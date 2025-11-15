@@ -387,7 +387,7 @@ def agent_config_to_spec(agent: Any) -> Optional[EnhancedAgentConfigSpec]:
             elif strategy_obj is not None:
                 # Strategy instance
                 strategy_name = strategy_obj.__class__.__name__.replace('Strategy', '').lower()
-                if strategy_name in ('noop', 'react', 'chain_of_thought'):
+                if strategy_name in ('noop', 'react', 'chain_of_thought', 'plan_and_solve'):
                     reasoning_strategy = ReasoningStrategySpec(
                         type=strategy_name,  # type: ignore
                         config=None

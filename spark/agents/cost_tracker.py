@@ -6,7 +6,7 @@ and estimating API costs across agent executions.
 """
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Callable, Dict, List, Optional
 import logging
 
 logger = logging.getLogger(__name__)
@@ -62,6 +62,7 @@ class CallCost:
     output_cost: float
     total_cost: float
     timestamp: float
+    namespace: str = "default"
 
     def __repr__(self) -> str:
         return (
@@ -115,13 +116,17 @@ class CostTracker:
         self._total_output_tokens = 0
         self._total_cost = 0.0
         self._cost_by_model: Dict[str, float] = {}
+        self._stats_by_namespace: Dict[str, CostStats] = {}
+        self._listeners: list[Callable[[CallCost, str], None]] = []
 
     def record_call(
         self,
         model_id: str,
         input_tokens: int,
         output_tokens: int,
-        timestamp: Optional[float] = None
+        timestamp: Optional[float] = None,
+        *,
+        namespace: str | None = None,
     ) -> CallCost:
         """Record an LLM API call and calculate cost.
 
@@ -147,6 +152,8 @@ class CostTracker:
         output_cost = (output_tokens / 1_000_000) * pricing['output']
         total_cost = input_cost + output_cost
 
+        ns = namespace or "default"
+
         # Create cost record
         call_cost = CallCost(
             model_id=model_id,
@@ -155,7 +162,8 @@ class CostTracker:
             input_cost=input_cost,
             output_cost=output_cost,
             total_cost=total_cost,
-            timestamp=timestamp
+            timestamp=timestamp,
+            namespace=ns,
         )
 
         # Update totals
@@ -164,6 +172,16 @@ class CostTracker:
         self._total_output_tokens += output_tokens
         self._total_cost += total_cost
         self._cost_by_model[model_id] = self._cost_by_model.get(model_id, 0.0) + total_cost
+
+        stats = self._stats_by_namespace.setdefault(ns, CostStats())
+        stats.total_calls += 1
+        stats.total_input_tokens += input_tokens
+        stats.total_output_tokens += output_tokens
+        stats.total_tokens = stats.total_input_tokens + stats.total_output_tokens
+        stats.total_cost += total_cost
+        stats.cost_by_model[model_id] = stats.cost_by_model.get(model_id, 0.0) + total_cost
+
+        self._notify_listeners(call_cost, ns)
 
         logger.debug(
             f"Recorded call: {model_id}, "
@@ -198,12 +216,42 @@ class CostTracker:
         )
         return MODEL_PRICING['default']
 
-    def get_stats(self) -> CostStats:
+    def add_listener(self, listener: Callable[[CallCost, str], None]) -> None:
+        """Register a callback invoked whenever a call is recorded."""
+        if listener not in self._listeners:
+            self._listeners.append(listener)
+
+    def remove_listener(self, listener: Callable[[CallCost, str], None]) -> None:
+        """Remove a previously registered listener."""
+        if listener in self._listeners:
+            self._listeners.remove(listener)
+
+    def _notify_listeners(self, call_cost: CallCost, namespace: str) -> None:
+        for listener in list(self._listeners):
+            try:
+                listener(call_cost, namespace)
+            except Exception:
+                logger.exception("Cost tracker listener failed for namespace=%s", namespace)
+
+    def get_stats(self, namespace: str | None = None) -> CostStats:
         """Get aggregated cost statistics.
 
         Returns:
             CostStats object with totals and breakdowns
         """
+        if namespace:
+            stats = self._stats_by_namespace.get(namespace)
+            if stats:
+                return CostStats(
+                    total_calls=stats.total_calls,
+                    total_input_tokens=stats.total_input_tokens,
+                    total_output_tokens=stats.total_output_tokens,
+                    total_tokens=stats.total_tokens,
+                    total_cost=stats.total_cost,
+                    cost_by_model=dict(stats.cost_by_model),
+                )
+            return CostStats()
+
         return CostStats(
             total_calls=len(self.calls),
             total_input_tokens=self._total_input_tokens,
@@ -213,18 +261,22 @@ class CostTracker:
             cost_by_model=dict(self._cost_by_model)
         )
 
-    def get_calls(self, model_id: Optional[str] = None) -> List[CallCost]:
+    def get_calls(self, model_id: Optional[str] = None, namespace: str | None = None) -> List[CallCost]:
         """Get call history, optionally filtered by model.
 
         Args:
             model_id: Optional model ID to filter by
+            namespace: Optional namespace to filter by
 
         Returns:
             List of CallCost objects
         """
-        if model_id is None:
-            return list(self.calls)
-        return [c for c in self.calls if c.model_id == model_id]
+        calls = list(self.calls)
+        if model_id is not None:
+            calls = [c for c in calls if c.model_id == model_id]
+        if namespace is not None:
+            calls = [c for c in calls if c.namespace == namespace]
+        return calls
 
     def reset(self) -> None:
         """Reset all tracking data."""
@@ -233,15 +285,16 @@ class CostTracker:
         self._total_output_tokens = 0
         self._total_cost = 0.0
         self._cost_by_model.clear()
+        self._stats_by_namespace.clear()
         logger.debug("Cost tracker reset")
 
-    def format_summary(self) -> str:
+    def format_summary(self, namespace: str | None = None) -> str:
         """Format a human-readable cost summary.
 
         Returns:
             Formatted string with cost breakdown
         """
-        stats = self.get_stats()
+        stats = self.get_stats(namespace)
 
         lines = [
             "Cost Summary",

@@ -58,6 +58,13 @@ def test_reasoning_strategy_spec_react():
     assert spec.custom_class is None
 
 
+def test_reasoning_strategy_spec_plan_and_solve():
+    """Test ReasoningStrategySpec with plan_and_solve type."""
+    spec = ReasoningStrategySpec(type='plan_and_solve')
+    assert spec.type == 'plan_and_solve'
+    assert spec.custom_class is None
+
+
 def test_reasoning_strategy_spec_custom_requires_class():
     """Test that custom strategy requires custom_class."""
     with pytest.raises(ValidationError) as exc_info:

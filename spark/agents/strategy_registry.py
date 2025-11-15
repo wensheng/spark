@@ -7,7 +7,13 @@ spec-compatible serialization using strategy names and string references.
 import logging
 from typing import Any, Optional, Type
 
-from spark.agents.strategies import ReasoningStrategy, NoOpStrategy, ReActStrategy, ChainOfThoughtStrategy
+from spark.agents.strategies import (
+    ReasoningStrategy,
+    NoOpStrategy,
+    ReActStrategy,
+    ChainOfThoughtStrategy,
+    PlanAndSolveStrategy,
+)
 from spark.utils.import_utils import import_class_from_ref, get_ref_for_class, validate_reference
 
 logger = logging.getLogger(__name__)
@@ -34,6 +40,7 @@ class StrategyRegistry:
             "noop": NoOpStrategy,
             "react": ReActStrategy,
             "chain_of_thought": ChainOfThoughtStrategy,
+            "plan_and_solve": PlanAndSolveStrategy,
         }
 
         for name, strategy_class in builtin_strategies.items():

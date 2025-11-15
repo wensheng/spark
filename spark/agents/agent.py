@@ -30,6 +30,13 @@ from spark.models.echo import EchoModel
 from spark.nodes.types import NodeMessage
 from spark.agents.config import AgentConfig, HookFn
 from spark.agents.memory import MemoryPolicyType, MemoryManager
+from spark.agents.policies import (
+    AgentBudgetManager,
+    AgentBudgetExceededError,
+    HumanPolicyManager,
+    HumanApprovalRequired,
+    AgentStoppedError,
+)
 from spark.agents.types import AgentState, ToolTrace, default_agent_state
 from spark.tools.types import BaseTool, ToolChoice, ToolUse
 
@@ -112,6 +119,13 @@ class Agent(Node):
         from spark.agents.cost_tracker import CostTracker
         self.cost_tracker = CostTracker()
 
+        self.budget_manager: AgentBudgetManager | None = None
+        if self.config.budget:
+            self.budget_manager = AgentBudgetManager(self.config.budget)
+            self.cost_tracker.add_listener(self._handle_cost_update)
+
+        self.human_policy_manager = HumanPolicyManager(self.config.human_policy)
+
     @property
     def state(self) -> AgentState:
         """Get the current state of the agent.
@@ -171,6 +185,27 @@ class Agent(Node):
         }
         self._state['tool_traces'].append(trace)
         logger.debug(f"Tool trace recorded: {tool_name} (ID: {tool_use_id}) completed in {duration_ms:.2f}ms")
+
+    def _handle_cost_update(self, call_cost, namespace: str) -> None:
+        if self.budget_manager:
+            self.budget_manager.handle_cost_event(call_cost, namespace)
+
+    def _register_llm_call(self) -> None:
+        if self.budget_manager:
+            self.budget_manager.register_llm_call()
+
+    def _check_runtime_budget(self) -> None:
+        if self.budget_manager:
+            self.budget_manager.check_runtime()
+
+    async def _ensure_strategy_plan(self, context: ExecutionContext[AgentState] | None) -> None:
+        if not getattr(self.reasoning_strategy, 'supports_planning', lambda: False)():
+            return
+        if self.reasoning_strategy.has_plan(self._state):
+            return
+        plan = await self.reasoning_strategy.generate_plan(context)
+        if plan:
+            self.reasoning_strategy.save_plan_to_state(plan, self._state)
 
     def _prepare_context(self, inputs: NodeMessage) -> ExecutionContext[AgentState]:
         """Prepare the execution context from inputs."""
@@ -350,6 +385,13 @@ class Agent(Node):
         """
         tool_result_blocks: list[ContentBlock] = []
 
+        if self.human_policy_manager:
+            for call in tool_calls:
+                func = call.get('function', {})
+                tool_name = func.get('name')
+                if tool_name:
+                    self.human_policy_manager.ensure_tool_allowed(tool_name)
+
         if self.config.parallel_tool_execution and len(tool_calls) > 1:
             # Execute tools in parallel for better performance
             logger.debug(f"Executing {len(tool_calls)} tools in parallel")
@@ -445,6 +487,12 @@ class Agent(Node):
         """
         if context is None:
             context = ExecutionContext()
+        if self.human_policy_manager:
+            self.human_policy_manager.ensure_not_stopped()
+        if self.budget_manager:
+            self.budget_manager.start_run()
+        await self._ensure_strategy_plan(context)
+        self._check_runtime_budget()
         payload = self.build_prompt(context)
         for hook in self.before_llm_hooks:
             await self._run_before_llm_hook(hook, payload, context)
@@ -464,6 +512,8 @@ class Agent(Node):
                 json_mode_tool_specs = self.tool_specs
                 json_mode_tool_choice = tool_choice
 
+                self._register_llm_call()
+                self._check_runtime_budget()
                 completion_message = await self.model.get_json(
                     output_model=self.output_schema,
                     messages=payload,
@@ -497,6 +547,7 @@ class Agent(Node):
                 while completion_message.get('stop_reason') == 'tool_use' or (
                     parsed_output and self.reasoning_strategy.should_continue(parsed_output)
                 ):
+                    self._check_runtime_budget()
                     iteration_count += 1
                     if self.config.max_steps and iteration_count >= self.config.max_steps:
                         logger.warning(f"Max steps ({self.config.max_steps}) reached, stopping tool execution")
@@ -553,6 +604,10 @@ class Agent(Node):
                             state=self._state,
                             context=context
                         )
+                        await self.reasoning_strategy.update_plan(
+                            self._state.get('last_output'),
+                            self._state,
+                        )
 
                     # Re-render template with updated context
                     # If a template is configured, re-render it with current state to include
@@ -568,6 +623,8 @@ class Agent(Node):
                         logger.debug(f"Re-rendered template with {len(self._state.get('history', []))} history steps")
 
                     # Get the next response while continuing to request structured output
+                    self._register_llm_call()
+                    self._check_runtime_budget()
                     completion_message = await self.model.get_json(
                         output_model=self.output_schema,
                         messages=payload,
@@ -597,6 +654,8 @@ class Agent(Node):
                 result = NodeMessage(content=content, raw=completion_message)
                 return result
 
+            self._register_llm_call()
+            self._check_runtime_budget()
             completion_message = await self.model.get_text(
                 payload, system_prompt=self.system_prompt, tool_specs=self.tool_specs, tool_choice=tool_choice
             )
@@ -605,6 +664,7 @@ class Agent(Node):
             # Keep executing tools until the model returns a final assistant message
             iteration_count = 0
             while completion_message.get('stop_reason') == 'tool_use':
+                self._check_runtime_budget()
                 iteration_count += 1
                 if self.config.max_steps and iteration_count >= self.config.max_steps:
                     logger.warning(f"Max steps ({self.config.max_steps}) reached, stopping tool execution")
@@ -629,15 +689,28 @@ class Agent(Node):
 
                 # Make the next API call
                 # print('payload:', payload)
+                self._register_llm_call()
+                self._check_runtime_budget()
                 completion_message = await self.model.get_text(
                     payload, system_prompt=self.system_prompt, tool_specs=self.tool_specs, tool_choice=tool_choice
                 )
+                await self.reasoning_strategy.update_plan(None, self._state)
 
             content = completion_message.get('content')
             result = NodeMessage(content=content, raw=raw)
             self._state['last_result'] = result
             return result
 
+        except AgentBudgetExceededError as exc:
+            logger.warning('Agent budget exceeded: %s', exc)
+            result = self.handle_model_error(exc)
+            self._state['last_result'] = result
+            return result
+        except (HumanApprovalRequired, AgentStoppedError) as exc:
+            logger.warning('Agent paused for human input: %s', exc)
+            result = self.handle_model_error(exc)
+            self._state['last_result'] = result
+            return result
         except ToolExecutionError as exc:
             # Tool execution errors are already logged, just handle gracefully
             logger.warning('Agent process interrupted by tool execution error: %s', str(exc))
@@ -855,6 +928,10 @@ class Agent(Node):
             error_content['category'] = 'model_call'
         elif isinstance(exc, ConfigurationError):
             error_content['category'] = 'configuration'
+        elif isinstance(exc, AgentBudgetExceededError):
+            error_content['category'] = 'budget'
+        elif isinstance(exc, (HumanApprovalRequired, AgentStoppedError)):
+            error_content['category'] = 'human_policy'
         else:
             error_content['category'] = 'unknown'
 
@@ -940,25 +1017,30 @@ class Agent(Node):
         """Clear all tool execution traces."""
         self._state['tool_traces'] = []
 
-    def get_cost_stats(self):
-        """Get cost tracking statistics for this agent.
-
-        Returns:
-            CostStats object with token usage and cost information
-        """
-        return self.cost_tracker.get_stats()
+    def get_cost_stats(self, namespace: str | None = None):
+        """Get cost tracking statistics for this agent."""
+        return self.cost_tracker.get_stats(namespace)
 
     def reset_cost_tracking(self) -> None:
         """Reset cost tracking data."""
         self.cost_tracker.reset()
 
-    def get_cost_summary(self) -> str:
-        """Get formatted cost summary.
+    def get_cost_summary(self, namespace: str | None = None) -> str:
+        """Get formatted cost summary."""
+        return self.cost_tracker.format_summary(namespace)
 
-        Returns:
-            Human-readable string with cost breakdown
-        """
-        return self.cost_tracker.format_summary()
+    def pause(self, reason: str | None = None) -> None:
+        """Trigger the configured stop token so operators can resume later."""
+        policy = self.config.human_policy
+        if not policy or not policy.stop_token:
+            raise ConfigurationError("No stop_token configured for this agent.")
+        HumanPolicyManager.issue_stop_signal(policy.stop_token, reason)
+
+    def resume(self) -> None:
+        """Clear the stop token to resume execution."""
+        policy = self.config.human_policy
+        if policy and policy.stop_token:
+            HumanPolicyManager.clear_stop_signal(policy.stop_token)
 
     def checkpoint(self) -> dict[str, Any]:
         """Create a checkpoint of the agent's current state.
@@ -1009,6 +1091,7 @@ class Agent(Node):
                         'output_tokens': call.output_tokens,
                         'cost': call.total_cost,
                         'timestamp': call.timestamp,
+                        'namespace': getattr(call, 'namespace', 'default'),
                     }
                     for call in self.cost_tracker.calls
                 ],
@@ -1083,7 +1166,8 @@ class Agent(Node):
                     model_id=call['model_id'],
                     input_tokens=call['input_tokens'],
                     output_tokens=call['output_tokens'],
-                    timestamp=call['timestamp']
+                    timestamp=call['timestamp'],
+                    namespace=call.get('namespace'),
                 )
 
         logger.info(

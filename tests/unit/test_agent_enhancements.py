@@ -10,9 +10,25 @@ This module tests the enhancements made in Phase 4:
 import pytest
 import tempfile
 import os
-from spark.agents import Agent, AgentConfig, CostTracker, CallCost, CostStats
+import time
+from spark.agents import (
+    Agent,
+    AgentConfig,
+    CostTracker,
+    CallCost,
+    CostStats,
+    PlanAndSolveStrategy,
+    AgentBudgetConfig,
+    AgentBudgetManager,
+    AgentBudgetExceededError,
+    HumanInteractionPolicy,
+    HumanPolicyManager,
+    HumanApprovalRequired,
+    AgentStoppedError,
+)
 from spark.models.echo import EchoModel
 from spark.tools.decorator import tool
+from spark.nodes.types import ExecutionContext, NodeMessage
 
 
 # Test tools
@@ -157,6 +173,21 @@ class TestCostTracker:
 
         # Should not raise, should use default pricing
         assert call.total_cost > 0
+
+    def test_namespaced_stats(self):
+        """Test stats can be segmented by namespace."""
+        tracker = CostTracker()
+        tracker.record_call('gpt-4o', input_tokens=100, output_tokens=50, namespace='alpha')
+        tracker.record_call('gpt-4o', input_tokens=200, output_tokens=100, namespace='beta')
+
+        all_stats = tracker.get_stats()
+        alpha_stats = tracker.get_stats('alpha')
+        beta_stats = tracker.get_stats('beta')
+
+        assert all_stats.total_calls == 2
+        assert alpha_stats.total_calls == 1
+        assert beta_stats.total_calls == 1
+        assert tracker.get_calls(namespace='alpha')[0].namespace == 'alpha'
 
 
 class TestAgentCostTracking:
@@ -350,6 +381,60 @@ class TestPhase4Integration:
 
         assert checkpoint['config']['parallel_tool_execution'] is True
         assert len(checkpoint['cost_tracking']['calls']) == 1
+
+
+class TestStrategyPlanning:
+    """Verify plan-first strategy support."""
+
+    @pytest.mark.asyncio
+    async def test_plan_strategy_generates_plan(self):
+        strategy = PlanAndSolveStrategy(plan_steps=["Assess", "Deliver"])
+        config = AgentConfig(model=EchoModel(), reasoning_strategy=strategy)
+        agent = Agent(config=config)
+        context = ExecutionContext(inputs=NodeMessage(content={}, metadata={}), state=agent.state)
+        await agent._ensure_strategy_plan(context)  # type: ignore[attr-defined]
+        assert 'strategy_plan' in agent.state
+        plan = agent.state['strategy_plan']
+        assert len(plan['steps']) == 2
+
+
+class TestAgentBudgets:
+    """Validate agent budget helpers."""
+
+    def test_llm_call_budget(self):
+        manager = AgentBudgetManager(AgentBudgetConfig(max_llm_calls=1))
+        manager.start_run()
+        manager.register_llm_call()
+        with pytest.raises(AgentBudgetExceededError):
+            manager.register_llm_call()
+
+    def test_runtime_budget(self):
+        manager = AgentBudgetManager(AgentBudgetConfig(max_runtime_seconds=0.01))
+        manager.start_run()
+        time.sleep(0.02)
+        with pytest.raises(AgentBudgetExceededError):
+            manager.check_runtime()
+
+
+class TestHumanPolicies:
+    """Ensure human policy manager enforces approvals and stops."""
+
+    def test_tool_approval_required(self):
+        policy = HumanInteractionPolicy(require_tool_approval=True)
+        manager = HumanPolicyManager(policy)
+        with pytest.raises(HumanApprovalRequired):
+            manager.ensure_tool_allowed('danger')
+        policy.auto_approved_tools.append('safe')
+        manager.ensure_tool_allowed('safe')
+
+    def test_stop_signal(self):
+        policy = HumanInteractionPolicy(stop_token='mission-x')
+        manager = HumanPolicyManager(policy)
+        HumanPolicyManager.issue_stop_signal('mission-x', reason='pause')
+        with pytest.raises(AgentStoppedError):
+            manager.ensure_not_stopped()
+        HumanPolicyManager.clear_stop_signal('mission-x')
+        manager.ensure_not_stopped()
 
 
 if __name__ == "__main__":

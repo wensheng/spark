@@ -414,6 +414,10 @@ class SpecLoader:
                         raise SpecLoaderError(f"Failed to import mission state schema '{schema_spec.module}': {exc}") from exc
                     if not isinstance(schema_cls, type) or not issubclass(schema_cls, BaseModel):
                         raise SpecLoaderError(f"Schema reference '{schema_spec.module}' is not a Pydantic model.")
+                    if schema_spec.name:
+                        setattr(schema_cls, 'schema_name', schema_spec.name)
+                    if schema_spec.version:
+                        setattr(schema_cls, 'schema_version', schema_spec.version)
                     state_schema_model = schema_cls
                 if graph_spec.graph_state.checkpointing:
                     checkpoint_config = GraphCheckpointConfig.from_dict(

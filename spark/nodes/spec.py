@@ -70,9 +70,10 @@ class ReasoningStrategySpec(BaseModel):
 
     model_config = ConfigDict(extra='ignore')
 
-    type: Literal['noop', 'react', 'chain_of_thought', 'custom']
+    type: Literal['noop', 'react', 'chain_of_thought', 'plan_and_solve', 'custom']
     """Strategy type - 'noop' for simple agents, 'react' for ReAct pattern,
-    'chain_of_thought' for CoT, 'custom' for user-defined strategies"""
+    'chain_of_thought' for CoT, 'plan_and_solve' for plan-aware strategies,
+    'custom' for user-defined strategies"""
 
     config: Optional[dict[str, Any]] = None
     """Strategy-specific configuration parameters"""
