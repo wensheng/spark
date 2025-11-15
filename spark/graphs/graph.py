@@ -800,104 +800,113 @@ class Graph(BaseGraph):
 
 
 class SubgraphNode(Node):
-    """Wrap a graph so it can execute as a single node within another flow."""
+    """Wrap a `Graph` so it can execute as a single node inside another graph."""
 
     def __init__(
         self,
-        graph: 'BaseGraph',
-        io_map: dict[str, str] | None = None,
+        *,
+        graph: BaseGraph | None = None,
+        graph_factory: Callable[[], BaseGraph] | None = None,
+        graph_spec: Any | None = None,
+        graph_source: str | None = None,
+        input_mapping: dict[str, str] | None = None,
+        output_mapping: dict[str, str] | None = None,
+        share_state: bool = True,
+        share_event_bus: bool = False,
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
-        if not isinstance(graph, BaseNode):
-            raise TypeError('SubgraphNode requires a graph derived from Node.')
-        self._graph_template: 'BaseGraph' = graph
-        self._io_map = dict(io_map or {})
-        self._previous_output_keys: set[str] = set()
+        if graph is None and graph_factory is None:
+            raise ValueError("SubgraphNode requires a graph instance or graph_factory.")
+        if graph is not None and not isinstance(graph, BaseGraph):
+            raise TypeError("graph must be a BaseGraph instance.")
+
+        self._graph_template = graph
+        self._graph_factory = graph_factory
+        self._graph_spec_payload = self._normalize_graph_spec(graph_spec)
+        self._graph_source_ref = graph_source
+
+        self.input_mapping = dict(input_mapping or {})
+        self.output_mapping = dict(output_mapping or {})
+        self.share_state = share_state
+        self.share_event_bus = share_event_bus
 
     async def process(self, context: ExecutionContext) -> Any:
-        runtime_flow = self._clone_flow()
-        self._apply_event_sink(runtime_flow)
-        initial_keys: set[str] = set(context.state.__dict__.keys())
-        baseline_keys = initial_keys - self._previous_output_keys
-        sub_input = self._prepare_subgraph_input()
-        result = await runtime_flow.run(sub_input)
-        output = self._prepare_subgraph_output(result, runtime_flow)
+        runtime_graph = self._create_runtime_graph()
+        self._prepare_runtime_graph(runtime_graph, context)
+        sub_inputs = self._map_inputs(context.inputs)
+        result = await runtime_graph.run(sub_inputs)
+        mapped = self._map_outputs(result)
+        return mapped
 
-        if isinstance(output, dict):
-            for key, value in output.items():
-                setattr(context.state, key, self._safe_copy(value))
-            self._previous_output_keys = {key for key in output if key not in baseline_keys}
+    @property
+    def graph_source(self) -> str | None:
+        return self._graph_source_ref
+
+    @property
+    def graph_spec_payload(self) -> Any | None:
+        return self._graph_spec_payload
+
+    def attach_graph_spec(self, spec: Any) -> None:
+        """Attach a graph spec payload for future serialization."""
+        self._graph_spec_payload = self._normalize_graph_spec(spec)
+
+    def _create_runtime_graph(self) -> BaseGraph:
+        if self._graph_factory is not None:
+            graph = self._graph_factory()
+        elif self._graph_template is not None:
+            graph = self._clone_graph(self._graph_template)
         else:
-            setattr(context.state, 'subgraph_output', self._safe_copy(output))
-            self._previous_output_keys = set()
+            raise RuntimeError("SubgraphNode is misconfigured without a graph factory.")
+        if not isinstance(graph, BaseGraph):
+            raise TypeError("graph_factory must return a BaseGraph instance.")
+        return graph
 
-        return output
+    def _prepare_runtime_graph(self, graph: BaseGraph, context: ExecutionContext) -> None:
+        if self.share_state and context.graph_state is not None:
+            graph.state = context.graph_state  # type: ignore[assignment]
+        if self.share_event_bus and self.event_bus is not None:
+            graph.event_bus = self.event_bus
 
-    def _clone_flow(self) -> 'BaseGraph':
-        clone_method = getattr(self._graph_template, 'copy', None)
+    def _map_inputs(self, payload: NodeMessage | dict[str, Any] | list[dict[str, Any]] | None) -> NodeMessage:
+        message = self._ensure_node_message(payload)
+        if not isinstance(message.content, dict):
+            return message
+        data = copy.deepcopy(message.content)
+        for outer_key, inner_key in self.input_mapping.items():
+            if outer_key in data:
+                data[inner_key] = data.pop(outer_key)
+        message.content = data
+        return message
+
+    def _map_outputs(self, result: Any) -> NodeMessage:
+        message = self._ensure_node_message(result)
+        if isinstance(message.content, dict) and self.output_mapping:
+            data = copy.deepcopy(message.content)
+            for inner_key, outer_key in self.output_mapping.items():
+                if inner_key in data:
+                    data[outer_key] = data.pop(inner_key)
+            message.content = data
+        return message
+
+    def _clone_graph(self, template: BaseGraph) -> BaseGraph:
+        clone_method = getattr(template, 'copy', None)
         if callable(clone_method):
             return clone_method()  # type: ignore[return-value]
-        return copy.deepcopy(self._graph_template)
+        return copy.deepcopy(template)
 
-    def _apply_event_sink(self, flow: 'BaseGraph') -> None:
-        # Note: event_sink is not defined on SubgraphNode in the type system
-        # This is a runtime attribute that may be set dynamically
-        sink = getattr(self, 'event_sink', None)  # type: ignore[attr-defined]
-        if sink is None:
-            return
-        setattr(flow, 'event_sink', sink)  # type: ignore[attr-defined]
-        for node in self._iterate_nodes(flow):
-            setattr(node, 'event_sink', sink)  # type: ignore[attr-defined]
+    def _normalize_graph_spec(self, spec_payload: Any | None) -> Any | None:
+        if spec_payload is None:
+            return None
+        dump = getattr(spec_payload, 'model_dump', None)
+        if callable(dump):
+            try:
+                return dump()
+            except Exception:
+                return spec_payload
+        return spec_payload
 
-    def _iterate_nodes(self, flow: 'BaseGraph') -> list[BaseNode]:
-        start = getattr(flow, 'start', None)
-        if not isinstance(start, BaseNode):
-            return []
-        seen: set[BaseNode] = set()
-        stack = [start]
-        while stack:
-            node = stack.pop()
-            if node in seen:
-                continue
-            seen.add(node)
-            stack.extend(child for child in node.get_next_nodes() if isinstance(child, BaseNode) and child not in seen)
-        return list(seen)
-
-    def _prepare_subgraph_input(self) -> NodeMessage:
-        # Note: self.context is not defined on SubgraphNode - should use self._state
-        snapshot = self._safe_copy(getattr(self, 'context', {}).get('state', self._state))  # type: ignore[attr-defined]
-        if not isinstance(snapshot, dict):
-            snapshot = NodeMessage(content=snapshot, metadata={})
-        for key in self._previous_output_keys:
-            snapshot.content.pop(key, None)
-        if self._io_map:
-            for outer_key, inner_key in self._io_map.items():
-                if outer_key in snapshot and inner_key != outer_key:
-                    snapshot.content[inner_key] = snapshot.content.pop(outer_key)
-        return NodeMessage(content=snapshot, metadata={})
-
-    def _prepare_subgraph_output(self, result: Any, flow: 'BaseGraph') -> Any:
-        flow_ctx = getattr(flow, 'context.state', None)
-        base_ctx = self._safe_copy(flow_ctx) if isinstance(flow_ctx, dict) else NodeMessage(content='', metadata={})
-
-        if isinstance(result, dict):
-            payload = base_ctx
-            payload.content.update(self._safe_copy(result))
-        elif base_ctx:
-            payload = base_ctx.content
-        else:
-            return self._safe_copy(result)
-
-        if self._io_map:
-            for outer_key, inner_key in self._io_map.items():
-                if inner_key in payload and inner_key != outer_key:
-                    value = payload.content.pop(inner_key)
-                    payload.content[outer_key] = value
-        return payload
-
-    def _safe_copy(self, value: Any) -> Any:
-        try:
-            return copy.deepcopy(value)
-        except Exception:
-            return value
+    def _ensure_node_message(self, payload: Any) -> NodeMessage:
+        if isinstance(payload, NodeMessage):
+            return payload
+        return NodeMessage(content=copy.deepcopy(payload), metadata={})

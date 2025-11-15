@@ -25,7 +25,7 @@ from spark.nodes.spec import (
 )
 from spark.nodes.base import BaseNode, Edge, EdgeCondition
 from spark.nodes.types import ExecutionContext
-from spark.graphs.graph import Graph
+from spark.graphs.graph import Graph, SubgraphNode
 from spark.graphs.checkpoint import GraphCheckpointConfig
 from spark.graphs.state_backend import create_state_backend
 from spark.utils.import_utils import import_from_ref, import_class_from_ref, ImportError as ImportResolutionError
@@ -213,6 +213,8 @@ class SpecLoader:
                     keys=config.get('keys', []),
                     mode=config.get('mode', 'all')
                 )
+            elif node_type == 'SubgraphNode':
+                node = self._load_subgraph_node(node_spec, config)
             else:
                 # Generic/unknown node types - use GenericNode
                 node = GenericNode(description=node_spec.description)
@@ -307,6 +309,35 @@ class SpecLoader:
         except Exception as e:
             raise SpecLoaderError(f"Failed to load Agent node: {e}") from e
 
+    def _load_subgraph_node(self, node_spec: NodeSpec, config: Dict[str, Any]) -> BaseNode:
+        """Load a SubgraphNode from spec configuration."""
+        try:
+            graph_obj: Graph
+            subgraph_spec = None
+            if 'graph_spec' in config and config['graph_spec'] is not None:
+                subgraph_spec = GraphSpec.model_validate(config['graph_spec'])
+                sub_loader = SpecLoader(import_policy=self.import_policy)
+                graph_obj = sub_loader.load_graph(subgraph_spec)
+            elif config.get('graph_source'):
+                graph_obj = self._load_graph_from_source(config['graph_source'])
+            else:
+                raise SpecLoaderError(
+                    f"SubgraphNode '{node_spec.id}' requires either 'graph_spec' or 'graph_source'."
+                )
+
+            node = SubgraphNode(
+                graph=graph_obj,
+                input_mapping=config.get('input_mapping'),
+                output_mapping=config.get('output_mapping'),
+                share_state=config.get('share_state', True),
+                share_event_bus=config.get('share_event_bus', False),
+                graph_spec=subgraph_spec,
+                graph_source=config.get('graph_source'),
+            )
+            return node
+        except Exception as e:
+            raise SpecLoaderError(f"Failed to load Subgraph node '{node_spec.id}': {e}") from e
+
     def load_edge_condition(self, condition_spec: Optional[ConditionSpec]) -> Optional[EdgeCondition]:
         """Load edge condition from spec.
 
@@ -382,6 +413,8 @@ class SpecLoader:
                         condition = EdgeCondition(expr=edge_spec.condition)
                     else:
                         condition = self.load_edge_condition(edge_spec.condition)
+                else:
+                    condition = EdgeCondition()
 
                 # Create edge
                 edge = Edge(
@@ -445,6 +478,20 @@ class SpecLoader:
 
         except Exception as e:
             raise SpecLoaderError(f"Failed to load graph: {e}") from e
+
+    def _load_graph_from_source(self, ref: str) -> Graph:
+        """Load a Graph instance from a module reference."""
+        try:
+            graph_obj = import_from_ref(ref)
+            if callable(graph_obj) and not isinstance(graph_obj, Graph):
+                graph_obj = graph_obj()
+            if not isinstance(graph_obj, Graph):
+                raise SpecLoaderError(f"Reference '{ref}' did not return a Graph instance.")
+            return graph_obj
+        except SpecLoaderError:
+            raise
+        except Exception as e:
+            raise SpecLoaderError(f"Failed to load graph from '{ref}': {e}") from e
 
     def validate_imports(self, spec: GraphSpec) -> List[str]:
         """Validate all module:attr references are loadable.

@@ -495,6 +495,34 @@ def _safe_config_from_node(node: BaseNode) -> Dict[str, Any]:
     return {k: v for k, v in cfg.items() if v is not None}
 
 
+def _serialize_subgraph_node(node: BaseNode) -> Dict[str, Any]:
+    """Serialize SubgraphNode runtime configuration into spec-friendly data."""
+    config: Dict[str, Any] = {}
+    graph_source = getattr(node, 'graph_source', None)
+    if graph_source:
+        config['graph_source'] = graph_source
+
+    graph_spec_payload = getattr(node, 'graph_spec_payload', None)
+    if graph_spec_payload:
+        config['graph_spec'] = graph_spec_payload
+    elif not graph_source:
+        template = getattr(node, '_graph_template', None)
+        if template is None:
+            raise ValueError("SubgraphNode requires a graph_spec or graph_source for serialization.")
+        config['graph_spec'] = graph_to_spec(template).model_dump()
+
+    input_mapping = getattr(node, 'input_mapping', None)
+    if input_mapping:
+        config['input_mapping'] = dict(input_mapping)
+    output_mapping = getattr(node, 'output_mapping', None)
+    if output_mapping:
+        config['output_mapping'] = dict(output_mapping)
+
+    config['share_state'] = getattr(node, 'share_state', True)
+    config['share_event_bus'] = getattr(node, 'share_event_bus', False)
+    return config
+
+
 def _collect_nodes_from_edges(edges: List[Edge]) -> List[BaseNode]:
     nodes: Dict[str, BaseNode] = {}
     for e in edges:
@@ -541,7 +569,9 @@ def node_to_spec(node: BaseNode) -> NodeSpec:
     description = getattr(node, 'description', None) or None
 
     # Type-specific serialization
-    if node_type == 'Agent':
+    if node_type == 'SubgraphNode':
+        config_dict = _serialize_subgraph_node(node)
+    elif node_type == 'Agent':
         # Use comprehensive agent serialization
         agent_config = agent_config_to_spec(node)
         if agent_config:

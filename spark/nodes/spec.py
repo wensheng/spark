@@ -623,6 +623,12 @@ class SubgraphNodeSpec(BaseModel):
     output_mapping: Optional[dict[str, str]] = None
     """Map subgraph outputs to this node's outputs"""
 
+    share_state: bool = True
+    """Share parent GraphState with the subgraph."""
+
+    share_event_bus: bool = False
+    """Forward the parent's event bus into the subgraph."""
+
     @model_validator(mode='after')
     def validate_graph_source(self) -> 'SubgraphNodeSpec':
         """Validate that exactly one of graph_source or graph_spec is provided."""

@@ -290,6 +290,17 @@ def test_subgraph_node_spec_with_source():
     assert spec.graph_spec is None
 
 
+def test_subgraph_node_spec_share_flags():
+    """Test SubgraphNodeSpec share_state/share_event_bus toggles."""
+    spec = SubgraphNodeSpec(
+        graph_source='myapp.graphs:my_graph',
+        share_state=False,
+        share_event_bus=True,
+    )
+    assert spec.share_state is False
+    assert spec.share_event_bus is True
+
+
 def test_subgraph_node_spec_requires_source_or_spec():
     """Test that SubgraphNodeSpec requires either graph_source or graph_spec."""
     with pytest.raises(ValidationError) as exc_info:
