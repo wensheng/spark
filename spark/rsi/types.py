@@ -378,3 +378,45 @@ class ParallelGraphStructure:
     merge_node_id: Optional[str] = None
     requires_merge: bool = False
     merge_strategy: str = "wait_all"  # wait_all, wait_any, custom
+
+
+@dataclass
+class NodeModification:
+    """A modification to a node."""
+    node_id: str
+    field: str
+    old_value: Any
+    new_value: Any
+
+
+@dataclass
+class EdgeModification:
+    """A modification to an edge."""
+    edge_id: str
+    field: str
+    old_value: Any
+    new_value: Any
+
+
+@dataclass
+class StructuralDiff:
+    """Detailed structural diff between two graphs."""
+    nodes_added: List[str] = field(default_factory=list)
+    nodes_removed: List[str] = field(default_factory=list)
+    nodes_modified: List[NodeModification] = field(default_factory=list)
+    edges_added: List[str] = field(default_factory=list)
+    edges_removed: List[str] = field(default_factory=list)
+    edges_modified: List[EdgeModification] = field(default_factory=list)
+    complexity_delta: int = 0
+    summary: str = ""
+
+
+@dataclass
+class StructuralValidationResult:
+    """Result of structural integrity validation."""
+    is_valid: bool
+    errors: List[str] = field(default_factory=list)
+    warnings: List[str] = field(default_factory=list)
+    reachable_nodes: List[str] = field(default_factory=list)
+    orphaned_nodes: List[str] = field(default_factory=list)
+    cycles: List[List[str]] = field(default_factory=list)

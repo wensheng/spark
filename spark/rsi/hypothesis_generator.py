@@ -61,6 +61,11 @@ class HypothesisGeneratorNode(Node):
         pattern_extractor: Optional[PatternExtractor] = None,
         experience_db: Optional[ExperienceDatabase] = None,
         enable_pattern_learning: bool = True,
+        # Phase 6: Structural analyzers
+        node_replacement_analyzer: Optional[Any] = None,
+        edge_optimizer: Optional[Any] = None,
+        parallelization_analyzer: Optional[Any] = None,
+        enable_structural_improvements: bool = True,
         **kwargs
     ):
         """Initialize HypothesisGeneratorNode.
@@ -73,6 +78,10 @@ class HypothesisGeneratorNode(Node):
             pattern_extractor: PatternExtractor for learning from past attempts (optional)
             experience_db: ExperienceDatabase to create pattern extractor (optional)
             enable_pattern_learning: Whether to use pattern-based learning (default: True)
+            node_replacement_analyzer: NodeReplacementAnalyzer for node replacement (Phase 6)
+            edge_optimizer: EdgeOptimizer for edge optimizations (Phase 6)
+            parallelization_analyzer: ParallelizationAnalyzer for parallelization (Phase 6)
+            enable_structural_improvements: Whether to generate structural hypotheses (Phase 6)
             **kwargs: Additional node configuration
         """
         super().__init__(name=name, **kwargs)
@@ -92,6 +101,26 @@ class HypothesisGeneratorNode(Node):
             self.pattern_extractor = None
             if enable_pattern_learning:
                 logger.info("Pattern learning disabled: no experience database provided")
+
+        # Phase 6: Structural analyzers
+        self.node_replacement_analyzer = node_replacement_analyzer
+        self.edge_optimizer = edge_optimizer
+        self.parallelization_analyzer = parallelization_analyzer
+        self.enable_structural_improvements = enable_structural_improvements
+
+        if enable_structural_improvements:
+            analyzers_available = []
+            if node_replacement_analyzer is not None:
+                analyzers_available.append("node_replacement")
+            if edge_optimizer is not None:
+                analyzers_available.append("edge_optimization")
+            if parallelization_analyzer is not None:
+                analyzers_available.append("parallelization")
+
+            if analyzers_available:
+                logger.info(f"Structural analyzers available: {', '.join(analyzers_available)}")
+            else:
+                logger.info("Structural improvements enabled but no analyzers provided")
 
         if not MODELS_AVAILABLE:
             logger.warning(
@@ -575,3 +604,286 @@ class HypothesisGeneratorNode(Node):
             hypotheses.append(hypothesis)
 
         return hypotheses
+
+    # ========================================================================
+    # Phase 6: Structural Hypothesis Generation
+    # ========================================================================
+
+    async def _generate_node_replacement_hypotheses(
+        self,
+        report: DiagnosticReport,
+        graph_introspector: GraphIntrospector
+    ) -> List[ImprovementHypothesis]:
+        """Generate node replacement hypotheses using NodeReplacementAnalyzer.
+
+        Args:
+            report: Diagnostic report with bottlenecks
+            graph_introspector: Graph introspector for node analysis
+
+        Returns:
+            List of node replacement hypotheses
+        """
+        if self.node_replacement_analyzer is None:
+            return []
+
+        hypotheses = []
+
+        # Analyze each bottleneck node
+        for bottleneck in report.bottlenecks:
+            node_id = bottleneck.node_id
+
+            # Get node spec
+            node_spec = graph_introspector.get_node_spec(node_id)
+            if not node_spec:
+                continue
+
+            # Find replacement candidates
+            try:
+                candidates = await self.node_replacement_analyzer.find_replacement_candidates(
+                    node_spec=node_spec,
+                    graph_introspector=graph_introspector,
+                    node_metrics=None  # Could pass bottleneck.metrics
+                )
+
+                # Generate hypothesis for best candidate
+                if candidates:
+                    best_candidate = candidates[0]  # Already sorted by compatibility
+
+                    # Create change spec
+                    change = ChangeSpec(
+                        type='node_replacement',
+                        target_node_id=node_id,
+                        additional_params={
+                            'replacement_node_spec': {
+                                'id': f"{node_id}_replacement",
+                                'type': best_candidate.replacement_node_type,
+                                'config': {}
+                            }
+                        }
+                    )
+
+                    # Create hypothesis
+                    hypothesis = ImprovementHypothesis(
+                        hypothesis_id=f"hyp_{uuid4().hex[:8]}",
+                        graph_id=report.graph_id,
+                        graph_version_baseline=report.graph_version,
+                        hypothesis_type=HypothesisType.NODE_REPLACEMENT,
+                        target_node=node_id,
+                        rationale=f"Replace {node_spec.type} with {best_candidate.replacement_node_type} "
+                                 f"(compatibility: {best_candidate.compatibility_score:.2f}). "
+                                 f"Notes: {', '.join(best_candidate.compatibility_notes[:2])}",
+                        expected_improvement=best_candidate.expected_improvement or ExpectedImprovement(),
+                        changes=[change],
+                        risk_level=self._assess_replacement_risk(best_candidate),
+                        risk_factors=best_candidate.risk_factors
+                    )
+
+                    hypotheses.append(hypothesis)
+
+            except Exception as e:
+                logger.warning(f"Error generating replacement hypothesis for {node_id}: {e}")
+
+        return hypotheses
+
+    async def _generate_edge_modification_hypotheses(
+        self,
+        report: DiagnosticReport,
+        graph_introspector: GraphIntrospector,
+        telemetry_data: Optional[List[Dict]] = None
+    ) -> List[ImprovementHypothesis]:
+        """Generate edge modification hypotheses using EdgeOptimizer.
+
+        Args:
+            report: Diagnostic report
+            graph_introspector: Graph introspector
+            telemetry_data: Telemetry data for edge analysis (optional)
+
+        Returns:
+            List of edge modification hypotheses
+        """
+        if self.edge_optimizer is None:
+            return []
+
+        hypotheses = []
+        telemetry_data = telemetry_data or []
+
+        try:
+            # Find redundant edges
+            redundant_edges = await self.edge_optimizer.find_redundant_edges(
+                graph_introspector=graph_introspector,
+                telemetry_data=telemetry_data
+            )
+
+            # Generate hypothesis for redundant edge removal
+            if redundant_edges:
+                edge_modifications = [
+                    {'type': 'remove', 'edge_id': edge.from_node + '_to_' + edge.to_node}
+                    for edge in redundant_edges[:3]  # Limit to top 3
+                ]
+
+                change = ChangeSpec(
+                    type='edge_batch_modifications',
+                    additional_params={'edge_modifications': edge_modifications}
+                )
+
+                hypothesis = ImprovementHypothesis(
+                    hypothesis_id=f"hyp_{uuid4().hex[:8]}",
+                    graph_id=report.graph_id,
+                    graph_version_baseline=report.graph_version,
+                    hypothesis_type=HypothesisType.EDGE_MODIFICATION,
+                    target_node=None,
+                    rationale=f"Remove {len(edge_modifications)} redundant edge(s) with low traversal rates",
+                    expected_improvement=ExpectedImprovement(latency_delta=-0.1),
+                    changes=[change],
+                    risk_level=RiskLevel.LOW,
+                    risk_factors=["edge_removal"]
+                )
+
+                hypotheses.append(hypothesis)
+
+            # Find shortcut opportunities
+            execution_patterns = {}  # Would come from telemetry
+            shortcuts = await self.edge_optimizer.find_shortcut_opportunities(
+                graph_introspector=graph_introspector,
+                execution_patterns=execution_patterns
+            )
+
+            # Generate hypothesis for shortcut additions
+            if shortcuts:
+                edge_modifications = [
+                    {
+                        'type': 'add',
+                        'edge_spec': {
+                            'id': f"shortcut_{sc.from_node}_to_{sc.to_node}",
+                            'from_node': sc.from_node,
+                            'to_node': sc.to_node,
+                            'condition': sc.condition_suggestion,
+                            'description': 'Shortcut edge'
+                        }
+                    }
+                    for sc in shortcuts[:2]  # Limit to top 2
+                ]
+
+                change = ChangeSpec(
+                    type='edge_batch_modifications',
+                    additional_params={'edge_modifications': edge_modifications}
+                )
+
+                total_savings = sum(sc.potential_latency_savings for sc in shortcuts[:2])
+
+                hypothesis = ImprovementHypothesis(
+                    hypothesis_id=f"hyp_{uuid4().hex[:8]}",
+                    graph_id=report.graph_id,
+                    graph_version_baseline=report.graph_version,
+                    hypothesis_type=HypothesisType.EDGE_MODIFICATION,
+                    target_node=None,
+                    rationale=f"Add {len(edge_modifications)} shortcut edge(s) to reduce latency by ~{total_savings:.2f}s",
+                    expected_improvement=ExpectedImprovement(latency_delta=-total_savings),
+                    changes=[change],
+                    risk_level=RiskLevel.MEDIUM,
+                    risk_factors=["structural_change", "new_edge"]
+                )
+
+                hypotheses.append(hypothesis)
+
+        except Exception as e:
+            logger.warning(f"Error generating edge modification hypothesis: {e}")
+
+        return hypotheses
+
+    async def _generate_parallelization_hypotheses(
+        self,
+        report: DiagnosticReport,
+        graph_introspector: GraphIntrospector
+    ) -> List[ImprovementHypothesis]:
+        """Generate parallelization hypotheses using ParallelizationAnalyzer.
+
+        Args:
+            report: Diagnostic report
+            graph_introspector: Graph introspector
+
+        Returns:
+            List of parallelization hypotheses
+        """
+        if self.parallelization_analyzer is None:
+            return []
+
+        hypotheses = []
+
+        try:
+            # Find parallelizable sequences
+            sequences = await self.parallelization_analyzer.find_parallelizable_sequences(
+                graph_introspector=graph_introspector
+            )
+
+            # Generate hypothesis for top sequences
+            for sequence in sequences[:2]:  # Limit to top 2
+                # Generate parallel structure
+                parallel_structure = await self.parallelization_analyzer.generate_parallel_structure(
+                    sequence=sequence
+                )
+
+                # Create change spec
+                change = ChangeSpec(
+                    type='parallelization',
+                    additional_params={
+                        'parallel_structure': {
+                            'parallel_branches': parallel_structure.parallel_branches,
+                            'merge_node_id': parallel_structure.merge_node_id,
+                            'requires_merge': parallel_structure.requires_merge,
+                            'merge_strategy': parallel_structure.merge_strategy
+                        },
+                        'entry_node': sequence.entry_node
+                    }
+                )
+
+                # Estimate benefit
+                benefit = await self.parallelization_analyzer.estimate_parallelization_benefit(
+                    sequence=sequence,
+                    historical_latency={}
+                )
+
+                hypothesis = ImprovementHypothesis(
+                    hypothesis_id=f"hyp_{uuid4().hex[:8]}",
+                    graph_id=report.graph_id,
+                    graph_version_baseline=report.graph_version,
+                    hypothesis_type=HypothesisType.PARALLELIZATION,
+                    target_node=sequence.entry_node,
+                    rationale=f"Parallelize {len(sequence.sequential_nodes)} node(s) for {sequence.estimated_speedup:.1f}x speedup "
+                             f"(confidence: {sequence.confidence:.0%})",
+                    expected_improvement=ExpectedImprovement(
+                        latency_delta=-benefit.latency_reduction
+                    ),
+                    changes=[change],
+                    risk_level=self._assess_parallelization_risk(sequence, benefit),
+                    risk_factors=["structural_change", "parallel_execution"]
+                )
+
+                hypotheses.append(hypothesis)
+
+        except Exception as e:
+            logger.warning(f"Error generating parallelization hypothesis: {e}")
+
+        return hypotheses
+
+    def _assess_replacement_risk(self, candidate) -> RiskLevel:
+        """Assess risk level for node replacement."""
+        if candidate.compatibility_score >= 0.9:
+            return RiskLevel.LOW
+        elif candidate.compatibility_score >= 0.7:
+            return RiskLevel.MEDIUM
+        else:
+            return RiskLevel.HIGH
+
+    def _assess_parallelization_risk(self, sequence, benefit) -> RiskLevel:
+        """Assess risk level for parallelization."""
+        if sequence.has_dependencies:
+            return RiskLevel.HIGH
+
+        if benefit.complexity_increase > 10:
+            return RiskLevel.MEDIUM
+
+        if sequence.confidence < 0.6:
+            return RiskLevel.MEDIUM
+
+        return RiskLevel.LOW
