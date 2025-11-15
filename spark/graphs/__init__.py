@@ -20,6 +20,7 @@ from spark.graphs.mission_control import (
     BudgetGuardrail,
     BudgetGuardrailConfig,
     GuardrailBreachError,
+    spae_template,
 )
 from spark.graphs.checkpoint import GraphCheckpoint, GraphCheckpointConfig
 from spark.graphs.state_schema import MissionStateModel
@@ -43,6 +44,7 @@ __all__ = [
     "BudgetGuardrail",
     "BudgetGuardrailConfig",
     "GuardrailBreachError",
+    "spae_template",
     "StateBackend",
     "InMemoryStateBackend",
     "SQLiteStateBackend",

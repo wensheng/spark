@@ -5,9 +5,11 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Callable, Iterable, Optional
+from typing import Any, Callable, Iterable, Optional, Sequence
 
 from spark.graphs.hooks import GraphLifecycleEvent
+from spark.graphs.graph import Graph
+from spark.nodes.nodes import Node
 
 
 class PlanStepStatus(str, Enum):
@@ -198,3 +200,29 @@ class MissionControl:
             self.plan_manager.attach(graph)
         for guardrail in self.guardrails:
             guardrail.attach(graph)
+
+
+def spae_template(
+    sense: Node,
+    plan: Node,
+    act: Node,
+    evaluate: Node,
+    *,
+    initial_state: dict[str, Any] | None = None,
+    plan_steps: Sequence[str] | None = None,
+    guardrails: Iterable[Guardrail] | None = None,
+) -> Graph:
+    """Sense→Plan→Act→Evaluate mission template."""
+    sense.goto(plan)
+    plan.goto(act)
+    act.goto(evaluate)
+    graph = Graph(start=sense, initial_state=initial_state or {})
+
+    plan_items = [
+        PlanStep(id=f"step-{idx+1}", description=description)
+        for idx, description in enumerate(plan_steps or ("Sense", "Plan", "Act", "Evaluate"))
+    ]
+    mission_plan = MissionPlan(plan_items)
+    controller = MissionControl(plan=mission_plan, guardrails=guardrails)
+    controller.attach(graph)
+    return graph
