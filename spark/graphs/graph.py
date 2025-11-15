@@ -3,13 +3,15 @@ Graphs are the top-level construct in Spark, defining the complete blueprint of 
 """
 
 import asyncio
+from asyncio import QueueEmpty
 import copy
 import logging
 import time
 from collections.abc import Iterable
 from typing import Any, Callable, Coroutine, Optional, final
+from types import SimpleNamespace
 
-from spark.nodes.base import BaseNode, Edge
+from spark.nodes.base import BaseNode, Edge, EdgeCondition
 from spark.nodes.nodes import Node
 from spark.graphs.base import BaseGraph
 from spark.graphs.tasks import Task, TaskType
@@ -75,6 +77,11 @@ class Graph(BaseGraph):
                     self.register_hook(event, handler)
         if mission_control:
             mission_control.attach(self)
+        self._event_edges_configured: bool = False
+        self._delayed_ready: asyncio.Queue[BaseNode] = asyncio.Queue()
+        self._delay_tasks: list[asyncio.Task] = []
+        self._event_tasks: list[asyncio.Task] = []
+        self._event_subscriptions: list[Any] = []
 
     def register_hook(self, event: GraphLifecycleEvent | str, hook: HookFn) -> None:
         """Register a lifecycle hook handler for the graph runtime."""
@@ -179,6 +186,11 @@ class Graph(BaseGraph):
     async def _run_internal(self, task: Task) -> Any:
         """Internal run implementation without timeout handling."""
         inputs = task.inputs
+        self._delayed_ready = asyncio.Queue()
+        self._delay_tasks = []
+        self._event_tasks = []
+        self._event_subscriptions = []
+        self._event_edges_configured = False
 
         # Ensure nodes are discovered for timeout handling
         if not self.nodes:
@@ -187,6 +199,7 @@ class Graph(BaseGraph):
 
         self._prepare_runtime()
         await self.state.initialize()
+        await self._configure_event_edges()
         # Persist campaign metadata for downstream nodes/telemetry
         campaign_info = getattr(task, 'campaign', None)
         if campaign_info and self._state_enabled:
@@ -257,6 +270,7 @@ class Graph(BaseGraph):
                 )
                 self._telemetry_manager.end_trace(trace.trace_id)
 
+            await self._cleanup_async_helpers()
             return self.end_node.outputs if self.end_node else None
 
         # For regular tasks, track nodes for timeout handling
@@ -305,13 +319,32 @@ class Graph(BaseGraph):
                     initial_run = False
 
                 for node in processed_nodes:
-                    successors = node.get_next_nodes()
-                    for successor_node in successors:
+                    active_edges = node.iter_active_edges()
+                    for edge in active_edges:
+                        if edge.is_event_driven:
+                            continue
+                        successor_node = edge.to_node
                         if successor_node is None:
+                            continue
+                        if edge.delay_seconds and edge.delay_seconds > 0:
+                            payload = copy.deepcopy(node.outputs)
+                            self._schedule_delayed_activation(edge, payload)
                             continue
                         should_schedule = await successor_node.receive_from_parent(node)
                         if should_schedule:
                             active_nodes.add(successor_node)
+
+                while not active_nodes and self._delayed_ready.empty():
+                    if not self._has_pending_delay_tasks():
+                        break
+                    try:
+                        successor = await self._delayed_ready.get()
+                    except asyncio.CancelledError:
+                        break
+                    active_nodes.add(successor)
+
+                delayed_ready = self._drain_delayed_successors()
+                active_nodes.update(delayed_ready)
                 after_metadata = {
                     'active_nodes': len(processed_nodes),
                     'initial_run': before_metadata['initial_run'],
@@ -367,6 +400,7 @@ class Graph(BaseGraph):
             raise
         finally:
             self._running_nodes = None  # Clear after completion
+            await self._cleanup_async_helpers()
 
     async def _monitor_idle_and_shutdown(self) -> None:
         """Monitor nodes for idle state and automatically shutdown when all nodes are idle.
@@ -514,6 +548,18 @@ class Graph(BaseGraph):
                 )
         self._channels_configured = True
 
+    async def _configure_event_edges(self) -> None:
+        if self._event_edges_configured:
+            return
+        self._event_edges_configured = True
+        for edge in self.edges:
+            if not edge.event_topic or edge.to_node is None:
+                continue
+            subscription = await self.event_bus.subscribe(edge.event_topic)
+            self._event_subscriptions.append(subscription)
+            task = asyncio.create_task(self._event_edge_worker(edge, subscription))
+            self._event_tasks.append(task)
+
     # Graph state helper methods
 
     async def get_state(self, key: str, default: Any = None) -> Any:
@@ -575,6 +621,95 @@ class Graph(BaseGraph):
         """Restore state from a checkpoint snapshot."""
         state_payload = snapshot.get('state') if isinstance(snapshot, dict) else None
         await self.state.reset(state_payload or {})
+
+    async def _event_edge_worker(self, edge: Edge, subscription: Any) -> None:
+        try:
+            async for message in subscription:
+                successor = edge.to_node
+                if successor is None:
+                    continue
+                payload = getattr(message, 'payload', message)
+                if edge.event_filter and not self._event_filter_matches(edge.event_filter, payload):
+                    continue
+                node_message = payload if isinstance(payload, NodeMessage) else NodeMessage(content=payload, metadata={})
+                successor.enqueue_input(node_message)
+                await self._delayed_ready.put(successor)
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            logger.exception("Event edge worker failed for topic=%s", edge.event_topic)
+        finally:
+            await subscription.close()
+
+    def _event_filter_matches(self, condition: EdgeCondition, payload: Any) -> bool:
+        dummy = SimpleNamespace()
+        dummy.outputs = NodeMessage(content=payload, metadata={})
+        return condition.check(dummy)  # type: ignore[arg-type]
+
+    def _drain_delayed_successors(self) -> set[BaseNode]:
+        ready: set[BaseNode] = set()
+        while True:
+            try:
+                successor = self._delayed_ready.get_nowait()
+            except QueueEmpty:
+                break
+            ready.add(successor)
+        return ready
+
+    def _schedule_delayed_activation(
+        self,
+        edge: Edge,
+        payload: NodeMessage | dict[str, Any] | list[dict[str, Any]] | None,
+    ) -> None:
+        task = asyncio.create_task(self._delayed_activation(edge, payload))
+        self._delay_tasks.append(task)
+
+    async def _delayed_activation(self, edge: Edge, payload: Any) -> None:
+        try:
+            await asyncio.sleep(edge.delay_seconds or 0)
+            successor = edge.to_node
+            if successor is None:
+                return
+            successor.enqueue_input(payload)
+            await self._delayed_ready.put(successor)
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            logger.exception("Delayed activation failed for edge=%s", edge.id)
+
+    def _has_pending_delay_tasks(self) -> bool:
+        return any(not task.done() for task in self._delay_tasks)
+
+    async def _cancel_tasks(self, tasks: list[asyncio.Task]) -> None:
+        if not tasks:
+            return
+        for task in tasks:
+            task.cancel()
+        for task in tasks:
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+            except Exception:
+                logger.debug("Helper task failed during shutdown", exc_info=True)
+        tasks.clear()
+
+    async def _cleanup_async_helpers(self) -> None:
+        await self._cancel_tasks(self._delay_tasks)
+        await self._cancel_tasks(self._event_tasks)
+        for subscription in self._event_subscriptions:
+            try:
+                await subscription.close()
+            except Exception:
+                logger.debug("Failed to close event subscription", exc_info=True)
+        self._event_subscriptions.clear()
+        self._event_edges_configured = False
+        while True:
+            try:
+                self._delayed_ready.get_nowait()
+            except QueueEmpty:
+                break
+        self._delayed_ready = asyncio.Queue()
 
 
 class SubgraphNode(Node):

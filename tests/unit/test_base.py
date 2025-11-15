@@ -286,15 +286,15 @@ class TestNode:
     def test_pop_ready_input_with_pending(self):
         """Test pop_ready_input with pending inputs."""
         node = self.TstNode()
-        node._state['pending_inputs'].append({"data": "value1"})
-        node._state['pending_inputs'].append({"data": "value2"})
+        node.enqueue_input({"data": "value1"})
+        node.enqueue_input({"data": "value2"})
 
         result1 = node.pop_ready_input()
         result2 = node.pop_ready_input()
         result3 = node.pop_ready_input()
         
-        assert result1 == {"data": "value1"}
-        assert result2 == {"data": "value2"}
+        assert result1.content == {"data": "value1"}
+        assert result2.content == {"data": "value2"}
         assert result3 is None
     
     @pytest.mark.asyncio
@@ -306,7 +306,7 @@ class TestNode:
         node1.outputs = {"payload": "data"}
         result = await node2.receive_from_parent(node1)
         assert result is True
-        assert node2._state['pending_inputs'][0] == {"payload": "data"}
+        assert node2._state['pending_inputs'][0].content == {"payload": "data"}
     
     @pytest.mark.asyncio
     async def test_receive_from_parent_none_payload(self):

@@ -131,10 +131,18 @@ class BaseNode(ABC):
         """Get the next nodes based on conditions and priorities."""
         return [edge.to_node for edge in self.iter_active_edges() if edge.to_node]
 
-    def iter_active_edges(self) -> list['Edge']:
+    def iter_active_edges(self, include_event_edges: bool = False) -> list['Edge']:
         """Iterate edges that should fire based on their conditions."""
         sorted_edges = sorted(self.edges, key=lambda edge: -edge.priority)
-        return [edge for edge in sorted_edges if edge.to_node and edge.condition.check(self)]
+        active_edges: list['Edge'] = []
+        for edge in sorted_edges:
+            if not edge.to_node:
+                continue
+            if edge.is_event_driven and not include_event_edges:
+                continue
+            if edge.condition.check(self):
+                active_edges.append(edge)
+        return active_edges
 
     def pop_ready_input(self) -> Any | None:
         """Return the next pre-staged input payload, if any.
@@ -151,8 +159,18 @@ class BaseNode(ABC):
     async def receive_from_parent(self, parent: 'BaseNode') -> bool:
         """Receive input from parent node."""
         payload = parent.outputs
-        self._state['pending_inputs'].append(payload)
+        self.enqueue_input(payload)
         return True
+
+    def enqueue_input(self, payload: NodeMessage | dict[str, Any] | list[dict[str, Any]] | None) -> None:
+        """Append a payload to this node's pending input queue."""
+        if payload is None:
+            message = NodeMessage(content='', metadata={})
+        elif isinstance(payload, NodeMessage):
+            message = payload
+        else:
+            message = NodeMessage(content=payload, metadata={})
+        self._state['pending_inputs'].append(message)
 
     def _record_snapshot(self, context: ExecutionContext) -> None:
         """Record a snapshot of the context."""
@@ -606,6 +624,9 @@ class Edge:
     priority: int = 0
     channel: BaseChannel | None = None
     channel_config: dict[str, Any] = field(default_factory=dict)
+    delay_seconds: float | None = None
+    event_topic: str | None = None
+    event_filter: EdgeCondition | None = None
 
     def __post_init__(self):
         """Add this edge to the from_node's edges list."""
@@ -637,3 +658,7 @@ class Edge:
         """Attach configuration hints used when building per-edge channels."""
         self.channel_config.update(config)
         return self
+
+    @property
+    def is_event_driven(self) -> bool:
+        return self.event_topic is not None
