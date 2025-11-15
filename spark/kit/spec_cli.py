@@ -22,9 +22,10 @@ import importlib
 import json
 import os
 import sys
-from typing import Any
+from typing import Any, Type
 
 from spark.graphs.base import BaseGraph
+from spark.graphs.state_schema import MissionStateModel
 from spark.nodes.serde import graph_to_spec, save_graph_json, load_graph_spec
 from spark.kit.codegen import generate, CodeGenerator
 from spark.kit.analysis import GraphAnalyzer
@@ -32,18 +33,33 @@ from spark.kit.diff import SpecDiffer
 from spark.nodes.spec import GraphSpec, NodeSpec, EdgeSpec
 
 
-def _resolve_target(target: str) -> Any:
-    """Import module:attr and return attribute value or callable result."""
+def _import_attr(target: str) -> Any:
     if ':' not in target:
         raise ValueError("target must be in form 'module:attr'")
     mod_name, attr_name = target.split(':', 1)
     module = importlib.import_module(mod_name)
-    obj = getattr(module, attr_name)
+    return getattr(module, attr_name)
+
+
+def _resolve_target(target: str) -> Any:
+    """Import module:attr and return attribute value or callable result."""
+    obj = _import_attr(target)
     if callable(obj):
         result = obj()
     else:
         result = obj
     return result
+
+
+def _resolve_schema(target: str) -> Type[MissionStateModel]:
+    """Load a MissionStateModel class from module:attr reference."""
+
+    obj = _import_attr(target)
+    if isinstance(obj, type) and issubclass(obj, MissionStateModel):
+        return obj
+    if isinstance(obj, MissionStateModel):
+        return obj.__class__
+    raise TypeError(f"Target '{target}' is not a MissionStateModel subclass")
 
 
 # ==============================================================================
@@ -485,6 +501,74 @@ def cmd_extract(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_schema_render(args: argparse.Namespace) -> int:
+    """Render MissionStateModel metadata + JSON schema."""
+
+    schema_cls = _resolve_schema(args.target)
+    payload = {
+        'metadata': schema_cls.schema_metadata(),
+        'json_schema': schema_cls.model_json_schema(),
+    }
+    output = json.dumps(payload, ensure_ascii=False, indent=2)
+    if args.output:
+        with open(args.output, 'w', encoding='utf-8') as f:
+            f.write(output)
+        print(f"Wrote schema to {args.output}")
+        return 0
+    print(output)
+    return 0
+
+
+def cmd_schema_validate(args: argparse.Namespace) -> int:
+    """Validate a fixture against a MissionStateModel."""
+
+    schema_cls = _resolve_schema(args.schema)
+    try:
+        with open(args.fixture, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+    except Exception as exc:
+        print(f"Failed to load fixture {args.fixture}: {exc}", file=sys.stderr)
+        return 2
+
+    try:
+        schema_cls.model_validate(data)
+    except Exception as exc:  # ValidationError or others
+        print(f"Invalid fixture for {schema_cls.schema_metadata()['name']}: {exc}", file=sys.stderr)
+        return 2
+
+    print(f"Fixture {args.fixture} is valid for {schema_cls.schema_metadata()['name']}")
+    return 0
+
+
+def cmd_schema_migrate(args: argparse.Namespace) -> int:
+    """Apply registered migrations to a state snapshot."""
+
+    schema_cls = _resolve_schema(args.schema)
+    try:
+        with open(args.input, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+    except Exception as exc:
+        print(f"Failed to load input state {args.input}: {exc}", file=sys.stderr)
+        return 2
+
+    current_version = data.pop('__schema_version__', None)
+    try:
+        migrated, version = schema_cls.migrate_state(data, current_version=current_version)
+    except Exception as exc:
+        print(f"Failed to migrate state: {exc}", file=sys.stderr)
+        return 2
+
+    migrated['__schema_version__'] = version
+    output = json.dumps(migrated, ensure_ascii=False, indent=2)
+    if args.output:
+        with open(args.output, 'w', encoding='utf-8') as f:
+            f.write(output)
+        print(f"Wrote migrated state to {args.output}")
+    else:
+        print(output)
+    return 0
+
+
 # ==============================================================================
 # CLI Parser
 # ==============================================================================
@@ -571,6 +655,25 @@ def build_parser() -> argparse.ArgumentParser:
     px.add_argument('--node', required=True, help='Node ID to start extraction from')
     px.add_argument('-o', '--output', help='Output subgraph to file')
     px.set_defaults(func=cmd_extract)
+
+    # Schema render command
+    psr = sub.add_parser('schema-render', help='Render MissionStateModel metadata + JSON schema')
+    psr.add_argument('target', help="Schema target in the form 'module:Class'")
+    psr.add_argument('-o', '--output', help='Output file (stdout if omitted)')
+    psr.set_defaults(func=cmd_schema_render)
+
+    # Schema validate command
+    psv = sub.add_parser('schema-validate', help='Validate fixture against MissionStateModel')
+    psv.add_argument('schema', help="Schema target in the form 'module:Class'")
+    psv.add_argument('fixture', help='JSON file containing state snapshot to validate')
+    psv.set_defaults(func=cmd_schema_validate)
+
+    # Schema migrate command
+    psm = sub.add_parser('schema-migrate', help='Run schema migrations against a state snapshot')
+    psm.add_argument('schema', help="Schema target in the form 'module:Class'")
+    psm.add_argument('input', help='Input JSON state file to migrate')
+    psm.add_argument('-o', '--output', help='Optional output file (stdout if omitted)')
+    psm.set_defaults(func=cmd_schema_migrate)
 
     return p
 

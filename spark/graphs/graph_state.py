@@ -15,6 +15,8 @@ class GraphState:
     Default backend is in-memory; durable backends can be supplied for checkpoints.
     """
 
+    _SCHEMA_VERSION_KEY = '__schema_version__'
+
     def __init__(
         self,
         initial_state: dict[str, Any] | None = None,
@@ -68,6 +70,7 @@ class GraphState:
         if self._pending_initial_state:
             await self._backend.update(self._pending_initial_state)
             self._pending_initial_state.clear()
+        await self._ensure_schema_version()
         self._initialized = True
 
     def enable_concurrent_mode(self) -> None:
@@ -117,8 +120,15 @@ class GraphState:
     async def transaction(self):
         """Context manager for atomic multi-operation transactions."""
         async with self._backend.transaction() as state_dict:
+            version = state_dict.get(self._SCHEMA_VERSION_KEY)
+            if self._schema_cls:
+                state_dict.pop(self._SCHEMA_VERSION_KEY, None)
             yield state_dict
-        self._validate_state(self._backend.snapshot())
+            if self._schema_cls:
+                state_dict[self._SCHEMA_VERSION_KEY] = self._schema_cls.schema_version
+            elif version is not None:
+                state_dict[self._SCHEMA_VERSION_KEY] = version
+        self._validate_state(self.get_snapshot())
 
     @asynccontextmanager
     async def lock(self, name: str = 'global'):
@@ -134,7 +144,8 @@ class GraphState:
 
     def get_snapshot(self) -> dict[str, Any]:
         """Return a shallow copy of current state (non-blocking)."""
-        return self._backend.snapshot()
+        snapshot = self._backend.snapshot()
+        return self._strip_metadata(snapshot)
 
     def get_raw(self) -> dict[str, Any]:
         """Direct access to internal state (use with caution)."""
@@ -150,8 +161,11 @@ class GraphState:
             state_dict.clear()
             if new_state:
                 state_dict.update(new_state)
+            if self._schema_cls:
+                state_dict[self._SCHEMA_VERSION_KEY] = self._schema_cls.schema_version
         self._pending_initial_state.clear()
         self._validate_state(self.get_snapshot())
+        await self._ensure_schema_version()
 
     def describe_backend(self) -> dict[str, Any]:
         """Return backend metadata for serialization."""
@@ -170,3 +184,31 @@ class GraphState:
             else "sequential"
         )
         return f"GraphState(mode={mode}, keys={list(snapshot.keys())})"
+
+    def _strip_metadata(self, snapshot: dict[str, Any]) -> dict[str, Any]:
+        if not self._schema_cls:
+            return dict(snapshot)
+        data = dict(snapshot)
+        data.pop(self._SCHEMA_VERSION_KEY, None)
+        return data
+
+    async def _ensure_schema_version(self) -> None:
+        if not self._schema_cls:
+            return
+        raw_snapshot = self._backend.snapshot()
+        current_version = raw_snapshot.get(self._SCHEMA_VERSION_KEY)
+        target_version = self._schema_cls.schema_version
+        sanitized = self._strip_metadata(raw_snapshot)
+        if current_version == target_version and current_version is not None:
+            if self._SCHEMA_VERSION_KEY not in raw_snapshot:
+                async with self._backend.transaction() as data:
+                    data[self._SCHEMA_VERSION_KEY] = target_version
+            return
+        migrated_state, final_version = self._schema_cls.migrate_state(
+            sanitized,
+            current_version=current_version,
+        )
+        async with self._backend.transaction() as data:
+            data.clear()
+            data.update(migrated_state)
+            data[self._SCHEMA_VERSION_KEY] = final_version
