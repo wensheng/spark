@@ -10,6 +10,8 @@ from spark.rsi.types import (
     ChangeSpec,
 )
 from spark.rsi.introspection import GraphIntrospector
+from spark.rsi.pattern_extractor import PatternExtractor, ExtractedPattern
+from spark.rsi.experience_db import ExperienceDatabase
 from typing import List, Dict, Any, Optional
 from uuid import uuid4
 import logging
@@ -56,6 +58,9 @@ class HypothesisGeneratorNode(Node):
         name: str = "HypothesisGenerator",
         max_hypotheses: int = 3,
         hypothesis_types: Optional[List[str]] = None,
+        pattern_extractor: Optional[PatternExtractor] = None,
+        experience_db: Optional[ExperienceDatabase] = None,
+        enable_pattern_learning: bool = True,
         **kwargs
     ):
         """Initialize HypothesisGeneratorNode.
@@ -65,12 +70,28 @@ class HypothesisGeneratorNode(Node):
             name: Node name
             max_hypotheses: Maximum number of hypotheses to generate
             hypothesis_types: Types of hypotheses to generate (default: prompt_optimization only)
+            pattern_extractor: PatternExtractor for learning from past attempts (optional)
+            experience_db: ExperienceDatabase to create pattern extractor (optional)
+            enable_pattern_learning: Whether to use pattern-based learning (default: True)
             **kwargs: Additional node configuration
         """
         super().__init__(name=name, **kwargs)
         self.model = model
         self.max_hypotheses = max_hypotheses
         self.hypothesis_types = hypothesis_types or ["prompt_optimization"]
+        self.enable_pattern_learning = enable_pattern_learning
+
+        # Set up pattern extractor
+        if pattern_extractor is not None:
+            self.pattern_extractor = pattern_extractor
+        elif experience_db is not None and enable_pattern_learning:
+            # Create pattern extractor from experience database
+            self.pattern_extractor = PatternExtractor(experience_db)
+            logger.info("Created PatternExtractor from experience database")
+        else:
+            self.pattern_extractor = None
+            if enable_pattern_learning:
+                logger.info("Pattern learning disabled: no experience database provided")
 
         if not MODELS_AVAILABLE:
             logger.warning(
@@ -95,6 +116,7 @@ class HypothesisGeneratorNode(Node):
                 - hypotheses: List[ImprovementHypothesis]
                 - count: int
                 - generation_method: str (llm or mock)
+                - patterns_used: List[ExtractedPattern] (if pattern learning enabled)
         """
         # Get inputs
         report = context.inputs.content.get('diagnostic_report')
@@ -113,40 +135,60 @@ class HypothesisGeneratorNode(Node):
         if graph is not None and introspector is None:
             introspector = GraphIntrospector(graph)
 
+        # Extract patterns from experience if enabled
+        patterns = []
+        if self.pattern_extractor is not None and self.enable_pattern_learning:
+            logger.info("Extracting patterns from experience database")
+            try:
+                patterns = await self.pattern_extractor.extract_patterns(
+                    graph_id=report.graph_id
+                )
+                logger.info(f"Extracted {len(patterns)} patterns from experience")
+            except Exception as e:
+                logger.warning(f"Error extracting patterns: {e}")
+                patterns = []
+
         # Generate hypotheses
         if self.model is not None and MODELS_AVAILABLE:
             logger.info(f"Generating hypotheses using LLM: {self.model.__class__.__name__}")
-            hypotheses = await self._generate_with_llm(report, introspector)
+            hypotheses = await self._generate_with_llm(report, introspector, patterns)
             generation_method = "llm"
         else:
             logger.info("Generating mock hypotheses (no model provided)")
-            hypotheses = self._generate_mock_hypotheses(report, introspector)
+            hypotheses = self._generate_mock_hypotheses(report, introspector, patterns)
             generation_method = "mock"
 
         logger.info(f"Generated {len(hypotheses)} hypotheses")
 
-        return {
+        result = {
             'hypotheses': hypotheses,
             'count': len(hypotheses),
             'generation_method': generation_method
         }
 
+        if patterns:
+            result['patterns_used'] = patterns
+
+        return result
+
     async def _generate_with_llm(
         self,
         report: DiagnosticReport,
-        introspector: Optional[GraphIntrospector]
+        introspector: Optional[GraphIntrospector],
+        patterns: List[ExtractedPattern]
     ) -> List[ImprovementHypothesis]:
         """Generate hypotheses using LLM.
 
         Args:
             report: Diagnostic report
             introspector: Graph introspector (optional)
+            patterns: Extracted patterns from experience (optional)
 
         Returns:
             List of improvement hypotheses
         """
-        # Build prompt
-        prompt = self._build_hypothesis_prompt(report, introspector)
+        # Build prompt with patterns
+        prompt = self._build_hypothesis_prompt(report, introspector, patterns)
 
         try:
             # Call LLM
@@ -220,18 +262,20 @@ class HypothesisGeneratorNode(Node):
         except Exception as e:
             logger.error(f"Error generating hypotheses with LLM: {e}", exc_info=True)
             # Fallback to mock generation
-            return self._generate_mock_hypotheses(report, introspector)
+            return self._generate_mock_hypotheses(report, introspector, patterns)
 
     def _build_hypothesis_prompt(
         self,
         report: DiagnosticReport,
-        introspector: Optional[GraphIntrospector]
+        introspector: Optional[GraphIntrospector],
+        patterns: List[ExtractedPattern]
     ) -> str:
         """Build prompt for LLM hypothesis generation.
 
         Args:
             report: Diagnostic report
             introspector: Graph introspector (optional)
+            patterns: Extracted patterns from experience (optional)
 
         Returns:
             Prompt string
@@ -277,6 +321,67 @@ class HypothesisGeneratorNode(Node):
             prompt_parts.append(f"\nTotal Nodes: {stats.get('total_nodes', 'N/A')}")
             prompt_parts.append(f"\nMax Depth: {stats.get('max_depth', 'N/A')}")
             prompt_parts.append(f"\nHas Cycles: {stats.get('has_cycles', False)}")
+
+        # Add learned patterns if available
+        if patterns:
+            prompt_parts.append("\n\n## Learned Patterns from Experience")
+            prompt_parts.append("\nThe system has learned the following patterns from past improvement attempts:")
+            prompt_parts.append("\nUse these patterns to guide your hypothesis generation.")
+
+            # Group patterns by type
+            success_patterns = [p for p in patterns if p.pattern_type == 'success']
+            failure_patterns = [p for p in patterns if p.pattern_type == 'failure']
+            improvement_patterns = [p for p in patterns if p.pattern_type == 'improvement']
+            regression_patterns = [p for p in patterns if p.pattern_type == 'regression']
+
+            if success_patterns:
+                prompt_parts.append("\n\n### Successful Patterns (Repeat These):")
+                for pattern in success_patterns[:3]:  # Top 3
+                    prompt_parts.append(f"\n- {pattern.hypothesis_type}: {pattern.recommendation}")
+                    prompt_parts.append(f"  Confidence: {pattern.confidence:.1%}, Evidence: {pattern.evidence_count} examples")
+                    prompt_parts.append(f"  Success Rate: {pattern.success_rate:.1%}")
+
+            if improvement_patterns:
+                prompt_parts.append("\n\n### High-Impact Improvements (Prioritize These):")
+                for pattern in improvement_patterns[:3]:  # Top 3
+                    prompt_parts.append(f"\n- {pattern.hypothesis_type}: {pattern.recommendation}")
+                    prompt_parts.append(f"  Confidence: {pattern.confidence:.1%}, Evidence: {pattern.evidence_count} examples")
+                    if 'avg_success_delta' in pattern.context:
+                        prompt_parts.append(f"  Avg Success Rate Improvement: {pattern.context['avg_success_delta']:+.1%}")
+
+            if failure_patterns:
+                prompt_parts.append("\n\n### Failure Patterns (Avoid These):")
+                for pattern in failure_patterns[:3]:  # Top 3
+                    prompt_parts.append(f"\n- {pattern.hypothesis_type}: {pattern.recommendation}")
+                    prompt_parts.append(f"  Confidence: {pattern.confidence:.1%}, Evidence: {pattern.evidence_count} examples")
+                    if 'common_reasons' in pattern.context:
+                        reasons = pattern.context['common_reasons']
+                        if reasons:
+                            prompt_parts.append(f"  Common Reasons: {', '.join(str(r) for r in reasons[:3])}")
+
+            if regression_patterns:
+                prompt_parts.append("\n\n### Regression Patterns (Use Caution):")
+                for pattern in regression_patterns[:3]:  # Top 3
+                    prompt_parts.append(f"\n- {pattern.hypothesis_type}: {pattern.recommendation}")
+                    prompt_parts.append(f"  Confidence: {pattern.confidence:.1%}, Evidence: {pattern.evidence_count} examples")
+                    if 'common_reason' in pattern.context:
+                        prompt_parts.append(f"  Common Rollback Reason: {pattern.context['common_reason']}")
+
+            # Add priority guidance
+            prompt_parts.append("\n\n### Priority Guidance:")
+            prompt_parts.append("\nBased on learned patterns, prioritize hypothesis types in this order:")
+
+            # Calculate priority scores for all types
+            hypothesis_types_with_scores = []
+            for hyp_type in self.hypothesis_types:
+                score = self.pattern_extractor.get_priority_score(patterns, hyp_type)
+                hypothesis_types_with_scores.append((hyp_type, score))
+
+            # Sort by priority score (descending)
+            hypothesis_types_with_scores.sort(key=lambda x: x[1], reverse=True)
+
+            for i, (hyp_type, score) in enumerate(hypothesis_types_with_scores, 1):
+                prompt_parts.append(f"\n{i}. {hyp_type} (priority score: {score:.2f})")
 
         # Add instructions
         prompt_parts.append("\n\n## Instructions")
@@ -394,18 +499,35 @@ class HypothesisGeneratorNode(Node):
     def _generate_mock_hypotheses(
         self,
         report: DiagnosticReport,
-        introspector: Optional[GraphIntrospector]
+        introspector: Optional[GraphIntrospector],
+        patterns: List[ExtractedPattern]
     ) -> List[ImprovementHypothesis]:
         """Generate mock hypotheses for testing (no LLM required).
 
         Args:
             report: Diagnostic report
             introspector: Graph introspector (optional)
+            patterns: Extracted patterns from experience (optional)
 
         Returns:
             List of improvement hypotheses
         """
         hypotheses = []
+
+        # If patterns available, prioritize hypothesis types based on learned patterns
+        prioritized_types = self.hypothesis_types.copy()
+        if patterns and self.pattern_extractor:
+            # Calculate priority scores
+            types_with_scores = []
+            for hyp_type in self.hypothesis_types:
+                score = self.pattern_extractor.get_priority_score(patterns, hyp_type)
+                # Avoid types with very low scores
+                if not self.pattern_extractor.should_avoid_hypothesis_type(patterns, hyp_type, threshold=0.7):
+                    types_with_scores.append((hyp_type, score))
+
+            # Sort by priority
+            types_with_scores.sort(key=lambda x: x[1], reverse=True)
+            prioritized_types = [t for t, _ in types_with_scores] if types_with_scores else self.hypothesis_types
 
         # Generate hypothesis for each bottleneck (up to max_hypotheses)
         for i, bottleneck in enumerate(report.bottlenecks[:self.max_hypotheses]):

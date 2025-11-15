@@ -89,7 +89,17 @@ from spark.rsi.deployment_controller import (
     DeploymentRecord
 )
 
-__version__ = "0.4.0"  # Phase 4
+# Phase 5 exports
+from spark.rsi.pattern_extractor import PatternExtractor, ExtractedPattern
+from spark.rsi.rsi_meta_graph import (
+    RSIMetaGraph,
+    RSIMetaGraphConfig,
+    AnalysisGateNode,
+    ValidationGateNode,
+    TestGateNode
+)
+
+__version__ = "0.5.0"  # Phase 5 (in progress)
 
 __all__ = [
     # Phase 1
@@ -107,4 +117,12 @@ __all__ = [
     "DeploymentControllerNode",
     "DeploymentConfig",
     "DeploymentRecord",
+    # Phase 5
+    "PatternExtractor",
+    "ExtractedPattern",
+    "RSIMetaGraph",
+    "RSIMetaGraphConfig",
+    "AnalysisGateNode",
+    "ValidationGateNode",
+    "TestGateNode",
 ]

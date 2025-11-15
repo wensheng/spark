@@ -261,7 +261,7 @@ async def test_build_prompt_basic(sample_report):
     """Test basic prompt building."""
     generator = HypothesisGeneratorNode()
 
-    prompt = generator._build_hypothesis_prompt(sample_report, None)
+    prompt = generator._build_hypothesis_prompt(sample_report, None, [])
 
     # Verify prompt structure
     assert "Generate Graph Improvement Hypotheses" in prompt
@@ -275,7 +275,7 @@ async def test_build_prompt_includes_bottlenecks(sample_report):
     """Test prompt includes bottleneck information."""
     generator = HypothesisGeneratorNode()
 
-    prompt = generator._build_hypothesis_prompt(sample_report, None)
+    prompt = generator._build_hypothesis_prompt(sample_report, None, [])
 
     # Verify bottleneck info
     assert "Identified Bottlenecks" in prompt
@@ -289,7 +289,7 @@ async def test_build_prompt_includes_failures(sample_report):
     """Test prompt includes failure patterns."""
     generator = HypothesisGeneratorNode()
 
-    prompt = generator._build_hypothesis_prompt(sample_report, None)
+    prompt = generator._build_hypothesis_prompt(sample_report, None, [])
 
     # Verify failure info
     assert "Failure Patterns" in prompt
@@ -301,7 +301,7 @@ async def test_build_prompt_includes_graph_structure(sample_report, introspector
     """Test prompt includes graph structure when introspector provided."""
     generator = HypothesisGeneratorNode()
 
-    prompt = generator._build_hypothesis_prompt(sample_report, introspector)
+    prompt = generator._build_hypothesis_prompt(sample_report, introspector, [])
 
     # Verify graph structure info
     assert "Graph Structure" in prompt
@@ -316,7 +316,7 @@ async def test_build_prompt_respects_hypothesis_types(sample_report):
         hypothesis_types=["parameter_tuning", "caching"]
     )
 
-    prompt = generator._build_hypothesis_prompt(sample_report, None)
+    prompt = generator._build_hypothesis_prompt(sample_report, None, [])
 
     assert "parameter_tuning" in prompt
     assert "caching" in prompt
@@ -327,7 +327,7 @@ async def test_build_prompt_includes_instructions(sample_report):
     """Test prompt includes clear instructions."""
     generator = HypothesisGeneratorNode()
 
-    prompt = generator._build_hypothesis_prompt(sample_report, None)
+    prompt = generator._build_hypothesis_prompt(sample_report, None, [])
 
     # Verify instructions
     assert "Instructions" in prompt
@@ -527,3 +527,244 @@ async def test_full_workflow_mock_generation(sample_report):
         assert hyp.expected_improvement is not None
         assert len(hyp.changes) > 0
         assert hyp.risk_level in [RiskLevel.LOW, RiskLevel.MEDIUM, RiskLevel.HIGH]
+
+
+# ============================================================================
+# Pattern-Based Learning Tests (Phase 5)
+# ============================================================================
+
+@pytest_asyncio.fixture
+async def experience_db_with_patterns():
+    """Create experience database with sample patterns."""
+    from spark.rsi.experience_db import ExperienceDatabase
+
+    db = ExperienceDatabase()
+    await db.initialize()
+
+    # Add successful prompt_optimization hypotheses
+    for i in range(5):
+        hyp_id = f"hyp_success_{i}"
+        await db.store_hypothesis(
+            hypothesis_id=hyp_id,
+            graph_id="test_graph",
+            graph_version_baseline="1.0.0",
+            hypothesis_type="prompt_optimization",
+            proposal={'test': 'data'},
+            target_node="node_a"
+        )
+        await db.update_test_results(hyp_id, {
+            'status': 'passed',
+            'comparison': {
+                'success_rate_delta': 0.05,
+                'avg_duration_delta': -0.1,
+                'is_improvement': True,
+                'is_regression': False
+            }
+        })
+        await db.update_deployment_outcome(
+            hyp_id,
+            deployed=True,
+            outcome={'successful': True, 'rolled_back': False},
+            lessons=['prompt_optimization works'],
+            patterns=['prompt_optimization_success']
+        )
+
+    # Add failed parameter_tuning hypotheses
+    for i in range(4):
+        hyp_id = f"hyp_fail_{i}"
+        await db.store_hypothesis(
+            hypothesis_id=hyp_id,
+            graph_id="test_graph",
+            graph_version_baseline="1.0.0",
+            hypothesis_type="parameter_tuning",
+            proposal={'test': 'data'},
+            target_node="node_b"
+        )
+        await db.update_test_results(hyp_id, {
+            'status': 'failed',
+            'comparison': {
+                'success_rate_delta': -0.05,
+                'avg_duration_delta': 0.2,
+                'is_improvement': False,
+                'is_regression': True
+            }
+        })
+        await db.update_deployment_outcome(
+            hyp_id,
+            deployed=False,
+            outcome={'successful': False},
+            lessons=['parameter_tuning failed'],
+            patterns=['parameter_tuning_failure']
+        )
+
+    return db
+
+
+@pytest.mark.asyncio
+async def test_init_with_experience_db(experience_db_with_patterns):
+    """Test initialization with experience database."""
+    generator = HypothesisGeneratorNode(
+        experience_db=experience_db_with_patterns,
+        enable_pattern_learning=True
+    )
+
+    assert generator.pattern_extractor is not None
+    assert generator.enable_pattern_learning is True
+
+
+@pytest.mark.asyncio
+async def test_init_with_pattern_extractor(experience_db_with_patterns):
+    """Test initialization with explicit pattern extractor."""
+    from spark.rsi.pattern_extractor import PatternExtractor
+
+    extractor = PatternExtractor(experience_db_with_patterns)
+    generator = HypothesisGeneratorNode(
+        pattern_extractor=extractor,
+        enable_pattern_learning=True
+    )
+
+    assert generator.pattern_extractor is extractor
+    assert generator.enable_pattern_learning is True
+
+
+@pytest.mark.asyncio
+async def test_pattern_extraction_during_generation(sample_report, experience_db_with_patterns):
+    """Test that patterns are extracted during hypothesis generation."""
+    generator = HypothesisGeneratorNode(
+        experience_db=experience_db_with_patterns,
+        enable_pattern_learning=True,
+        max_hypotheses=2
+    )
+
+    context = ExecutionContext(
+        inputs=NodeMessage(content={'diagnostic_report': sample_report})
+    )
+
+    result = await generator.process(context)
+
+    # Should have extracted patterns
+    assert 'patterns_used' in result
+    assert len(result['patterns_used']) > 0
+
+    # Should have generated hypotheses
+    assert result['count'] > 0
+    assert len(result['hypotheses']) > 0
+
+
+@pytest.mark.asyncio
+async def test_build_prompt_includes_patterns(sample_report, experience_db_with_patterns):
+    """Test that learned patterns are included in the prompt."""
+    from spark.rsi.pattern_extractor import PatternExtractor
+
+    extractor = PatternExtractor(experience_db_with_patterns, min_evidence_count=3)
+    patterns = await extractor.extract_patterns(graph_id="test_graph")
+
+    generator = HypothesisGeneratorNode(
+        pattern_extractor=extractor,
+        enable_pattern_learning=True
+    )
+
+    prompt = generator._build_hypothesis_prompt(sample_report, None, patterns)
+
+    # Should include patterns section
+    assert "Learned Patterns from Experience" in prompt
+    assert "Successful Patterns" in prompt or "High-Impact Improvements" in prompt
+    assert "Priority Guidance" in prompt
+
+    # Should include specific pattern types
+    assert "prompt_optimization" in prompt.lower()
+
+
+@pytest.mark.asyncio
+async def test_mock_generation_prioritizes_by_patterns(sample_report, experience_db_with_patterns):
+    """Test that mock generation prioritizes hypothesis types based on patterns."""
+    generator = HypothesisGeneratorNode(
+        experience_db=experience_db_with_patterns,
+        enable_pattern_learning=True,
+        max_hypotheses=2,
+        hypothesis_types=["prompt_optimization", "parameter_tuning"]
+    )
+
+    context = ExecutionContext(
+        inputs=NodeMessage(content={'diagnostic_report': sample_report})
+    )
+
+    result = await generator.process(context)
+
+    # Should generate hypotheses
+    assert result['count'] > 0
+
+    # Should prefer prompt_optimization over parameter_tuning (based on patterns)
+    hypothesis_types = [h.hypothesis_type.value for h in result['hypotheses']]
+    prompt_opt_count = hypothesis_types.count('prompt_optimization')
+    param_tune_count = hypothesis_types.count('parameter_tuning')
+
+    # prompt_optimization should be preferred (or at least present)
+    assert prompt_opt_count >= param_tune_count
+
+
+@pytest.mark.asyncio
+async def test_pattern_learning_disabled():
+    """Test that pattern learning can be disabled."""
+    from spark.rsi.experience_db import ExperienceDatabase
+
+    db = ExperienceDatabase()
+    await db.initialize()
+
+    generator = HypothesisGeneratorNode(
+        experience_db=db,
+        enable_pattern_learning=False
+    )
+
+    assert generator.pattern_extractor is None
+    assert generator.enable_pattern_learning is False
+
+
+@pytest.mark.asyncio
+async def test_generation_without_patterns(sample_report):
+    """Test that generation works without patterns (backward compatible)."""
+    generator = HypothesisGeneratorNode(
+        max_hypotheses=2,
+        hypothesis_types=["prompt_optimization"]
+    )
+
+    context = ExecutionContext(
+        inputs=NodeMessage(content={'diagnostic_report': sample_report})
+    )
+
+    result = await generator.process(context)
+
+    # Should still generate hypotheses
+    assert result['count'] == 2
+    assert len(result['hypotheses']) == 2
+
+    # Should not have patterns_used
+    assert 'patterns_used' not in result or len(result.get('patterns_used', [])) == 0
+
+
+@pytest.mark.asyncio
+async def test_pattern_extraction_error_handling(sample_report):
+    """Test that pattern extraction errors are handled gracefully."""
+    from spark.rsi.pattern_extractor import PatternExtractor
+    from spark.rsi.experience_db import ExperienceDatabase
+
+    # Create a pattern extractor with empty database
+    db = ExperienceDatabase()
+    await db.initialize()
+    extractor = PatternExtractor(db, min_evidence_count=100)  # Very high threshold
+
+    generator = HypothesisGeneratorNode(
+        pattern_extractor=extractor,
+        enable_pattern_learning=True,
+        max_hypotheses=2
+    )
+
+    context = ExecutionContext(
+        inputs=NodeMessage(content={'diagnostic_report': sample_report})
+    )
+
+    result = await generator.process(context)
+
+    # Should still generate hypotheses even with no patterns
+    assert result['count'] > 0
+    assert len(result['hypotheses']) > 0
