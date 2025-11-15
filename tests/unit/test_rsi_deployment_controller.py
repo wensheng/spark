@@ -22,6 +22,9 @@ from spark.rsi.types import (
 from spark.nodes.types import NodeMessage, ExecutionContext
 from spark.nodes.spec import GraphSpec, NodeSpec
 
+FAST_MONITOR_DURATION = 0.02
+FAST_MONITOR_INTERVAL = 0.005
+
 
 # ============================================================================
 # Fixtures
@@ -167,7 +170,10 @@ def test_deployment_controller_init_custom():
 async def test_deploy_successful(basic_hypothesis, passed_test_result, basic_graph_spec):
     """Test successful deployment."""
     controller = DeploymentControllerNode(
-        deployment_config=DeploymentConfig(monitoring_duration_seconds=0.1)
+        deployment_config=DeploymentConfig(
+            monitoring_duration_seconds=FAST_MONITOR_DURATION,
+            monitoring_interval_seconds=FAST_MONITOR_INTERVAL
+        )
     )
 
     context = ExecutionContext(
@@ -190,7 +196,10 @@ async def test_deploy_successful(basic_hypothesis, passed_test_result, basic_gra
 async def test_deploy_without_baseline_spec(basic_hypothesis, passed_test_result):
     """Test deployment without baseline spec (still succeeds but skips change application)."""
     controller = DeploymentControllerNode(
-        deployment_config=DeploymentConfig(monitoring_duration_seconds=0.1)
+        deployment_config=DeploymentConfig(
+            monitoring_duration_seconds=FAST_MONITOR_DURATION,
+            monitoring_interval_seconds=FAST_MONITOR_INTERVAL
+        )
     )
 
     context = ExecutionContext(
@@ -211,7 +220,10 @@ async def test_deploy_without_baseline_spec(basic_hypothesis, passed_test_result
 async def test_deploy_with_experience_db(basic_hypothesis, passed_test_result, experience_db):
     """Test deployment with experience database integration."""
     controller = DeploymentControllerNode(
-        deployment_config=DeploymentConfig(monitoring_duration_seconds=0.1),
+        deployment_config=DeploymentConfig(
+            monitoring_duration_seconds=FAST_MONITOR_DURATION,
+            monitoring_interval_seconds=FAST_MONITOR_INTERVAL
+        ),
         experience_db=experience_db
     )
 
@@ -297,8 +309,8 @@ async def test_monitoring_no_rollback(basic_hypothesis, passed_test_result):
     """Test monitoring without triggering rollback."""
     controller = DeploymentControllerNode(
         deployment_config=DeploymentConfig(
-            monitoring_duration_seconds=0.2,
-            monitoring_interval_seconds=0.1
+            monitoring_duration_seconds=FAST_MONITOR_DURATION,
+            monitoring_interval_seconds=FAST_MONITOR_INTERVAL
         ),
         enable_monitoring=True,
         enable_rollback=True
@@ -442,7 +454,8 @@ async def test_deploy_direct_strategy(basic_hypothesis, passed_test_result):
     controller = DeploymentControllerNode(
         deployment_config=DeploymentConfig(
             strategy="direct",
-            monitoring_duration_seconds=0.1
+            monitoring_duration_seconds=FAST_MONITOR_DURATION,
+            monitoring_interval_seconds=FAST_MONITOR_INTERVAL
         )
     )
 
@@ -465,7 +478,8 @@ async def test_deploy_canary_strategy_simplified(basic_hypothesis, passed_test_r
     controller = DeploymentControllerNode(
         deployment_config=DeploymentConfig(
             strategy="canary",
-            monitoring_duration_seconds=0.1
+            monitoring_duration_seconds=FAST_MONITOR_DURATION,
+            monitoring_interval_seconds=FAST_MONITOR_INTERVAL
         )
     )
 
@@ -490,7 +504,10 @@ async def test_deploy_canary_strategy_simplified(basic_hypothesis, passed_test_r
 async def test_deployment_record_tracking(basic_hypothesis, passed_test_result):
     """Test that deployment records are tracked."""
     controller = DeploymentControllerNode(
-        deployment_config=DeploymentConfig(monitoring_duration_seconds=0.1)
+        deployment_config=DeploymentConfig(
+            monitoring_duration_seconds=FAST_MONITOR_DURATION,
+            monitoring_interval_seconds=FAST_MONITOR_INTERVAL
+        )
     )
 
     context = ExecutionContext(

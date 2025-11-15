@@ -26,6 +26,7 @@ from spark.graphs.mission_control import (
 )
 from spark.graphs.checkpoint import GraphCheckpoint, GraphCheckpointConfig
 from spark.graphs.state_schema import MissionStateModel
+from spark.graphs.shared_memory import SharedMemoryManager, KnowledgeGraph, MemoryRecord
 
 __all__ = [
     "BaseGraph",
@@ -57,4 +58,7 @@ __all__ = [
     "GraphCheckpoint",
     "GraphCheckpointConfig",
     "MissionStateModel",
+    "SharedMemoryManager",
+    "KnowledgeGraph",
+    "MemoryRecord",
 ]

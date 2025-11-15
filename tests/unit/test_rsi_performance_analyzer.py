@@ -9,8 +9,13 @@ from spark.nodes.types import NodeMessage, ExecutionContext
 from spark.graphs import Graph
 from spark.nodes import Node
 
+TRACE_COUNT = 12
+FAST_NODE_SLEEP = 0.001
+SLOW_NODE_SLEEP = 0.02
+FINAL_FLUSH_SLEEP = 0.01
 
-@pytest_asyncio.fixture
+
+@pytest_asyncio.fixture(scope="module")
 async def telemetry_manager():
     """Create telemetry manager for testing."""
     TelemetryManager.reset_instance()
@@ -21,12 +26,12 @@ async def telemetry_manager():
     TelemetryManager.reset_instance()
 
 
-@pytest_asyncio.fixture
+@pytest_asyncio.fixture(scope="module")
 async def sample_telemetry_data(telemetry_manager):
     """Generate sample telemetry data with known performance characteristics."""
 
-    # Create 20 sample traces with varying performance
-    for i in range(20):
+    # Create TRACE_COUNT sample traces with varying performance
+    for i in range(TRACE_COUNT):
         trace = telemetry_manager.start_trace(
             name="test_graph",
             attributes={'graph.id': 'test_graph'}
@@ -38,7 +43,7 @@ async def sample_telemetry_data(telemetry_manager):
             trace.trace_id,
             attributes={'node.id': 'node_a', 'node.name': 'NodeA'}
         ) as span:
-            await asyncio.sleep(0.01)  # 10ms
+            await asyncio.sleep(FAST_NODE_SLEEP)
 
         # Node B: Slow (bottleneck)
         async with telemetry_manager.start_span(
@@ -46,7 +51,7 @@ async def sample_telemetry_data(telemetry_manager):
             trace.trace_id,
             attributes={'node.id': 'node_b', 'node.name': 'NodeB'}
         ) as span:
-            await asyncio.sleep(0.2)  # 200ms - intentionally slow (much slower than other nodes)
+            await asyncio.sleep(SLOW_NODE_SLEEP)
 
         # Node C: Fails 20% of the time
         try:
@@ -57,7 +62,7 @@ async def sample_telemetry_data(telemetry_manager):
             ) as span:
                 if i % 5 == 0:  # Fail every 5th execution (20%)
                     raise ValueError("Simulated error")
-                await asyncio.sleep(0.01)
+                await asyncio.sleep(FAST_NODE_SLEEP)
         except ValueError:
             # Record the event for failed node
             from spark.telemetry import EventType
@@ -79,7 +84,7 @@ async def sample_telemetry_data(telemetry_manager):
 
     # Flush to ensure data is available
     await telemetry_manager.flush()
-    await asyncio.sleep(0.1)  # Allow async operations to complete
+    await asyncio.sleep(FINAL_FLUSH_SLEEP)  # Allow async operations to complete
 
     return telemetry_manager
 
@@ -156,7 +161,7 @@ async def test_performance_analyzer_with_data(sample_telemetry_data):
 
     # Check summary metrics
     summary = report.summary
-    assert summary.total_executions == 20
+    assert summary.total_executions == TRACE_COUNT
     assert 0 < summary.success_rate <= 1.0
     assert summary.avg_duration > 0
 
@@ -260,20 +265,20 @@ async def test_performance_analyzer_node_metrics(sample_telemetry_data):
     # Check NodeA (fast and reliable)
     if 'node_a' in node_metrics:
         node_a = node_metrics['node_a']
-        assert node_a.executions == 20
+        assert node_a.executions == TRACE_COUNT
         assert node_a.success_rate > 0.95  # Should be very reliable
         assert node_a.avg_duration < 0.05  # Should be fast
 
     # Check NodeB (slow)
     if 'node_b' in node_metrics:
         node_b = node_metrics['node_b']
-        assert node_b.executions == 20
-        assert node_b.avg_duration > 0.05  # Should be slow
+        assert node_b.executions == TRACE_COUNT
+        assert node_b.avg_duration >= SLOW_NODE_SLEEP  # Should be slow
 
     # Check NodeC (fails sometimes)
     if 'node_c' in node_metrics:
         node_c = node_metrics['node_c']
-        assert node_c.executions == 20
+        assert node_c.executions == TRACE_COUNT
         assert node_c.error_rate > 0  # Should have some errors
 
 
