@@ -1,6 +1,13 @@
 from spark.graphs.base import BaseGraph
 from spark.graphs.graph import Graph
-from spark.graphs.tasks import Task, TaskType, Budget
+from spark.graphs.tasks import (
+    Task,
+    TaskType,
+    Budget,
+    CampaignInfo,
+    TaskScheduler,
+    CampaignBudgetError,
+)
 from spark.graphs.graph_state import GraphState
 from spark.graphs.state_backend import StateBackend, InMemoryStateBackend, SQLiteStateBackend
 from spark.graphs.mission_control import (
@@ -21,6 +28,9 @@ __all__ = [
     "Task",
     "TaskType",
     "Budget",
+    "CampaignInfo",
+    "TaskScheduler",
+    "CampaignBudgetError",
     "GraphState",
     "MissionControl",
     "MissionPlan",

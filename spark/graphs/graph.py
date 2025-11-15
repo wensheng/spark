@@ -187,6 +187,10 @@ class Graph(BaseGraph):
 
         self._prepare_runtime()
         await self.state.initialize()
+        # Persist campaign metadata for downstream nodes/telemetry
+        campaign_info = getattr(task, 'campaign', None)
+        if campaign_info and self._state_enabled:
+            await self.state.set('campaign', campaign_info.model_dump())
 
         # Start telemetry trace if enabled
         trace = None
