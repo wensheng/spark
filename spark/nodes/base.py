@@ -14,6 +14,11 @@ from uuid import UUID, uuid4
 from spark.nodes.types import NodeMessage, ExecutionContext, NodeState, default_node_state
 from spark.nodes.channels import BaseChannel, InMemoryChannel
 
+try:  # Optional telemetry instrumentation
+    from spark.telemetry.instrumentation import instrument_edge_transition
+except ImportError:  # pragma: no cover - optional dependency
+    instrument_edge_transition = None
+
 if TYPE_CHECKING:
     from spark.graphs.event_bus import GraphEventBus
 

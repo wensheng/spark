@@ -30,6 +30,11 @@ from spark.nodes.exceptions import ContextValidationError, NodeExecutionError, N
 from spark.nodes.types import EventSink, NodeMessage, NullEventSink
 from spark.nodes.channels import ChannelMessage
 
+try:  # Optional telemetry instrumentation
+    from spark.telemetry.instrumentation import instrument_edge_transition
+except ImportError:  # pragma: no cover - optional dependency
+    instrument_edge_transition = None
+
 _BATCH_FAILURE_STRATEGIES = {'all_or_nothing', 'skip_failed', 'collect_errors'}
 
 
@@ -183,6 +188,12 @@ class Node(BaseNode):
             }
             outgoing = ChannelMessage(payload=payload, metadata=merged_metadata)
             await channel.send(outgoing)
+            manager = getattr(self, '_telemetry_manager', None)
+            if instrument_edge_transition and manager:
+                try:
+                    await instrument_edge_transition(self, target, edge.condition, manager)
+                except Exception:
+                    logging.getLogger(__name__).exception('Telemetry edge instrumentation failed')
 
     def stop(self) -> None:
         """Signal the node to stop processing after completing the current message."""

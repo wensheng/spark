@@ -38,7 +38,7 @@ from spark.graphs.hooks import GraphLifecycleContext, GraphLifecycleEvent, HookF
 # Import telemetry (optional)
 try:
     from spark.telemetry import TelemetryManager, TelemetryConfig, EventType, SpanKind, SpanStatus
-    from spark.telemetry.instrumentation import attach_telemetry_to_node
+    from spark.telemetry.instrumentation import attach_telemetry_to_node, instrument_edge_transition
     TELEMETRY_AVAILABLE = True
 except ImportError:
     TELEMETRY_AVAILABLE = False
@@ -337,6 +337,7 @@ class Graph(BaseGraph):
             telemetry_context = self._telemetry_manager.create_context(trace.trace_id)
             for node in self.nodes:
                 setattr(node, '_telemetry_context', telemetry_context)
+                setattr(node, '_telemetry_manager', self._telemetry_manager)
                 if self._telemetry_config.auto_instrument_nodes:
                     attach_telemetry_to_node(node, self._telemetry_manager)
 
@@ -463,6 +464,20 @@ class Graph(BaseGraph):
                         should_schedule = await successor_node.receive_from_parent(node)
                         if should_schedule:
                             active_nodes.add(successor_node)
+                        if (
+                            TELEMETRY_AVAILABLE
+                            and self._telemetry_manager
+                            and instrument_edge_transition is not None
+                        ):
+                            try:
+                                await instrument_edge_transition(
+                                    node,
+                                    successor_node,
+                                    edge.condition,
+                                    self._telemetry_manager,
+                                )
+                            except Exception:
+                                logger.exception('Telemetry edge instrumentation failed')
 
                 for node in processed_nodes:
                     pending = getattr(node, '_state', {}).get('pending_inputs')
