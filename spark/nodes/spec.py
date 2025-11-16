@@ -946,6 +946,53 @@ class EdgeSpec(BaseModel):
         return payload
 
 
+class SimulationToolOverrideSpec(BaseModel):
+    """Configuration for a simulated tool override."""
+
+    model_config = ConfigDict(extra='ignore')
+
+    name: str
+    """Tool identifier (matches agent tool name)."""
+
+    description: str | None = None
+    """Optional description for reporting."""
+
+    static_response: Any | None = None
+    """Inline response payload returned by the simulation."""
+
+    handler: str | None = None
+    """Optional callable reference (module:function) that generates responses."""
+
+    parameters: dict[str, Any] = Field(
+        default_factory=lambda: {'type': 'object', 'properties': {}, 'required': []},
+        description="JSON schema describing expected arguments.",
+    )
+
+    response_schema: dict[str, Any] | None = None
+    """Optional JSON schema describing simulation responses."""
+
+    @model_validator(mode='after')
+    def validate_source(self) -> 'SimulationToolOverrideSpec':
+        if self.static_response is None and not self.handler:
+            raise ValueError("Simulation tool override requires either 'static_response' or 'handler'.")
+        return self
+
+
+class MissionSimulationSpec(BaseModel):
+    """Mission-level simulation configuration."""
+
+    model_config = ConfigDict(extra='ignore')
+
+    enabled: bool = False
+    """Toggle simulation behavior."""
+
+    latency_seconds: float = 0.0
+    """Optional artificial latency applied to simulated tools."""
+
+    tools: list[SimulationToolOverrideSpec] = Field(default_factory=list)
+    """Tool overrides available during simulation runs."""
+
+
 class GraphSpec(BaseModel):
     """Top-level graph specification including nodes, edges, and graph features.
 
@@ -1132,6 +1179,7 @@ class MissionSpec(BaseModel):
     state_schema: Optional[MissionStateSchemaSpec] = None
     telemetry: Optional[MissionTelemetrySpec] = None
     deployment: Optional[MissionDeploymentSpec] = None
+    simulation: Optional[MissionSimulationSpec] = None
 
     @field_validator('strategies')
     @classmethod

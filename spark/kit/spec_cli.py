@@ -42,6 +42,7 @@ from spark.kit.analysis import GraphAnalyzer
 from spark.kit.codegen import CodeGenerator, generate
 from spark.kit.deployment import MissionDeployer, MissionPackager
 from spark.kit.diff import SpecDiffer, diff_mission_specs
+from spark.kit.simulation import SimulationRunner, SimulationRunResult
 from spark.nodes.serde import (
     graph_to_spec,
     load_graph_spec,
@@ -55,6 +56,7 @@ from spark.nodes.spec import (
     MissionDeploymentSpec,
     MissionPlanSpec,
     MissionPlanStepSpec,
+    MissionSimulationSpec,
     MissionSpec,
     MissionStateSchemaSpec,
     MissionStrategyBindingSpec,
@@ -1070,6 +1072,75 @@ def _diff_policy_sets(old: PolicySet, new: PolicySet) -> dict[str, Any]:
     }
 
 
+def cmd_simulation_run(args: argparse.Namespace) -> int:
+    """Run a mission spec using simulation tool overrides."""
+
+    mission = load_mission_spec(args.mission)
+    sim_override = None
+    if args.simulation_config:
+        try:
+            with open(args.simulation_config, 'r', encoding='utf-8') as f:
+                payload = json.load(f)
+            sim_override = MissionSimulationSpec.model_validate(payload)
+        except Exception as exc:
+            print(f"Failed to load simulation config: {exc}", file=sys.stderr)
+            return 2
+
+    try:
+        inputs: dict[str, Any] = {}
+        if args.inputs:
+            with open(args.inputs, 'r', encoding='utf-8') as f:
+                inputs = json.load(f)
+    except Exception as exc:
+        print(f"Failed to load inputs: {exc}", file=sys.stderr)
+        return 2
+
+    runner = SimulationRunner(mission, import_policy=args.import_policy)
+
+    async def _run() -> SimulationRunResult:
+        return await runner.run(inputs=inputs, simulation_override=sim_override)
+
+    try:
+        result = asyncio.run(_run())
+    except Exception as exc:
+        print(f"Simulation run failed: {exc}", file=sys.stderr)
+        return 2
+
+    if args.format == 'json':
+        payload = {
+            'outputs': result.outputs,
+            'policy_events': result.policy_events,
+            'tool_records': {
+                name: [
+                    {
+                        'tool_use_id': record.tool_use_id,
+                        'inputs': record.inputs,
+                        'outputs': record.outputs,
+                        'status': record.status,
+                        'started_at': record.started_at,
+                        'completed_at': record.completed_at,
+                        'metadata': record.metadata,
+                    }
+                    for record in records
+                ]
+                for name, records in result.tool_records.items()
+            },
+        }
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return 0
+
+    print("Simulation completed.")
+    print(f"  Outputs: {result.outputs}")
+    print(f"  Policy events: {len(result.policy_events)}")
+    if result.tool_records:
+        print("  Tool calls:")
+        for name, records in result.tool_records.items():
+            print(f"    - {name}: {len(records)} invocation(s)")
+    else:
+        print("  Tool calls: none")
+    return 0
+
+
 def cmd_schema_diff(args: argparse.Namespace) -> int:
     """Compare two MissionStateModel definitions."""
 
@@ -1355,6 +1426,14 @@ def build_parser() -> argparse.ArgumentParser:
     ppd.add_argument('new', help='Updated policy file')
     ppd.add_argument('--format', choices=['text', 'json'], default='text', help='Output format')
     ppd.set_defaults(func=cmd_policy_diff)
+
+    psim = sub.add_parser('simulation-run', help='Run a mission spec with simulated tools')
+    psim.add_argument('mission', help='Path to mission spec JSON')
+    psim.add_argument('--inputs', help='JSON file containing initial graph inputs')
+    psim.add_argument('--simulation-config', help='Optional simulation config override JSON')
+    psim.add_argument('--import-policy', choices=['safe', 'allow_all'], default='safe', help='Import policy for loader')
+    psim.add_argument('--format', choices=['text', 'json'], default='text', help='Output format')
+    psim.set_defaults(func=cmd_simulation_run)
 
     return p
 

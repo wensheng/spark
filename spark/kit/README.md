@@ -45,3 +45,11 @@ Scaffold and validate policy sets:
     python -m spark.kit.spec_cli policy-generate --name mission.policies -o policies.json
     python -m spark.kit.spec_cli policy-validate policies.json
     python -m spark.kit.spec_cli policy-diff old.json new.json
+
+**Simulation harness**
+
+Execute mission specs against simulated tools (static responses or custom handlers):
+
+    python -m spark.kit.spec_cli simulation-run mission.json --format json
+
+Provide alternate overrides via `--simulation-config overrides.json` or add inputs with `--inputs payload.json`.

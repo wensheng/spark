@@ -59,6 +59,11 @@ class SimulationToolAdapter(BaseTool):
         return 'simulation'
 
     @property
+    def supports_hot_reload(self) -> bool:
+        """Allow overriding existing tools when installing adapters."""
+        return True
+
+    @property
     def tool_spec(self) -> ToolSpec:
         payload: ToolSpec = {
             'name': self._bundle.tool_name,

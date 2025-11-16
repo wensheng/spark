@@ -29,6 +29,7 @@ from spark.graphs.graph import Graph, SubgraphNode
 from spark.graphs.checkpoint import GraphCheckpointConfig
 from spark.graphs.state_backend import create_state_backend
 from spark.utils.import_utils import import_from_ref, import_class_from_ref, ImportError as ImportResolutionError
+from spark.tools.simulation.stubs import PlaceholderTool
 
 logger = logging.getLogger(__name__)
 
@@ -63,18 +64,20 @@ class SpecLoader:
         await graph.run(inputs={'query': 'test'})
     """
 
-    def __init__(self, import_policy: str = 'safe'):
+    def __init__(self, import_policy: str = 'safe', simulation_mode: bool = False):
         """Initialize the spec loader.
 
         Args:
             import_policy: Import safety policy ('safe' or 'allow_all')
                 'safe' only allows imports from spark.* modules
                 'allow_all' allows any module imports
+            simulation_mode: When True, skip importing real tools and use placeholders.
         """
         self.import_policy = import_policy
         self.tool_cache: Dict[str, Any] = {}
         self.model_cache: Dict[str, Any] = {}
         self.node_cache: Dict[str, BaseNode] = {}
+        self.simulation_mode = simulation_mode
 
     def load_model(self, model_spec: ModelSpec | str) -> Any:
         """Instantiate model from spec.
@@ -254,7 +257,11 @@ class SpecLoader:
             # Load tools
             tools = []
             tool_specs = config.get('tools', [])
-            for tool_spec in tool_specs:
+            for index, tool_spec in enumerate(tool_specs):
+                if self.simulation_mode:
+                    placeholder_name = tool_spec.get('name') or f"{node_spec.id}_tool_{index}"
+                    tools.append(PlaceholderTool(placeholder_name))
+                    continue
                 tool_source = tool_spec.get('source')
                 if tool_source:
                     tool = self.load_tool(tool_source)
