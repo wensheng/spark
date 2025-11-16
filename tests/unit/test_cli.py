@@ -309,6 +309,39 @@ def test_mission_diff_command(tmp_path, mission_spec_file, capsys):
     assert 'Plan changes' in captured.out
 
 
+def test_mission_package_command(tmp_path, mission_spec_file):
+    """mission-package bundles spec + manifest."""
+    out_dir = tmp_path / 'packages'
+    exit_code = main([
+        'mission-package',
+        mission_spec_file,
+        '--output-dir', str(out_dir),
+        '--package-id', 'pkg1',
+    ])
+    assert exit_code == 0
+    manifest = json.loads((out_dir / 'pkg1' / 'manifest.json').read_text())
+    assert manifest['package_id'] == 'pkg1'
+    assert manifest['mission_id'] == 'mission.example'
+
+
+def test_mission_deploy_command(tmp_path, mission_spec_file, capsys):
+    """mission-deploy runs readiness checks."""
+    out_dir = tmp_path / 'packages'
+    main(['mission-package', mission_spec_file, '--output-dir', str(out_dir), '--package-id', 'pkg2'])
+    package_dir = out_dir / 'pkg2'
+    report_path = tmp_path / 'deploy.json'
+    exit_code = main([
+        'mission-deploy',
+        str(package_dir),
+        '--workspace', str(tmp_path / 'workspace'),
+        '--report', str(report_path),
+    ])
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert 'Deployment status' in captured.out
+    assert report_path.exists()
+
+
 # ==============================================================================
 # Optimize Command Tests
 # ==============================================================================

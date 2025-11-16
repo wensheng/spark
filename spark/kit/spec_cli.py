@@ -22,6 +22,8 @@ import importlib
 import json
 import os
 import sys
+from dataclasses import asdict
+from pathlib import Path
 from typing import Any, Type
 
 from spark.graphs.base import BaseGraph
@@ -37,6 +39,7 @@ from spark.nodes.serde import (
 from spark.kit.codegen import generate, CodeGenerator
 from spark.kit.analysis import GraphAnalyzer
 from spark.kit.diff import SpecDiffer, diff_mission_specs
+from spark.kit.deployment import MissionPackager, MissionDeployer
 from spark.nodes.spec import (
     GraphSpec,
     NodeSpec,
@@ -49,6 +52,7 @@ from spark.nodes.spec import (
     ReasoningStrategySpec,
     MissionDeploymentSpec,
 )
+from spark.graphs.artifacts import ArtifactPolicy
 
 
 def _import_attr(target: str) -> Any:
@@ -91,6 +95,27 @@ def _extract_schema_fields(schema_cls: Type[MissionStateModel]) -> dict[str, dic
             'default': None if fld.is_required() else fld.default,
         }
     return fields
+
+
+def _resolve_artifact_policy(value: str | None) -> dict[str, Any] | None:
+    """Resolve artifact policy metadata from JSON file, inline JSON, or module reference."""
+    if not value:
+        return None
+    path = Path(value)
+    if path.exists():
+        with open(path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    try:
+        return json.loads(value)
+    except json.JSONDecodeError:
+        target = _import_attr(value)
+        if callable(target):
+            target = target()
+        if isinstance(target, ArtifactPolicy):
+            return asdict(target)
+        if isinstance(target, dict):
+            return target
+        raise TypeError(f"Artifact policy target '{value}' must return dict or ArtifactPolicy")
 
 
 # ==============================================================================
@@ -332,6 +357,65 @@ def cmd_mission_diff(args: argparse.Namespace) -> int:
         print(diff_result)
 
     return 1 if diff_result.has_changes else 0
+
+
+def cmd_mission_package(args: argparse.Namespace) -> int:
+    """Bundle mission spec + schema/artifact metadata into a package directory."""
+    try:
+        mission = load_mission_spec(args.file)
+    except Exception as exc:
+        print(f'Invalid mission spec: {exc}', file=sys.stderr)
+        return 2
+
+    schema_cls: Type[MissionStateModel] | None = None
+    if args.schema:
+        try:
+            schema_cls = _resolve_schema(args.schema)
+        except Exception as exc:  # pragma: no cover - defensive
+            print(f'Failed to resolve schema {args.schema}: {exc}', file=sys.stderr)
+            return 2
+
+    artifact_policy = _resolve_artifact_policy(getattr(args, 'artifact_policy', None))
+
+    output_dir = args.output_dir or os.getcwd()
+    packager = MissionPackager(output_dir)
+    package = packager.build_package(
+        mission,
+        package_id=args.package_id,
+        schema_cls=schema_cls,
+        artifact_policy=artifact_policy,
+        notes=args.notes,
+    )
+    print(f"Packaged mission to {package.path}")
+    print(f"Manifest: {package.path / 'manifest.json'}")
+    return 0
+
+
+def cmd_mission_deploy(args: argparse.Namespace) -> int:
+    """Run deployment readiness checks on a mission package."""
+    package_path = args.package
+    workspace = args.workspace
+    if workspace:
+        Path(workspace).mkdir(parents=True, exist_ok=True)
+    deployer = MissionDeployer(import_policy=getattr(args, 'import_policy', 'allow_all'))
+    report = deployer.deploy_package(
+        package_path,
+        environment_override=args.environment,
+        workspace=workspace,
+        write_report=args.report,
+    )
+    print(f"Deployment status: {report.status}")
+    if report.environment:
+        print(f"Environment: {report.environment}")
+    if report.semantic_issues:
+        print("Semantic issues:")
+        for issue in report.semantic_issues:
+            print(f"  ⚠ {issue}")
+    if not report.graph_load_ok and report.loader_error:
+        print(f"Graph load error: {report.loader_error}", file=sys.stderr)
+    if args.report:
+        print(f"Wrote deployment report to {args.report}")
+    return 0 if report.status == 'ready' else 1
 
 
 # ==============================================================================
@@ -887,6 +971,25 @@ def build_parser() -> argparse.ArgumentParser:
     pmd.add_argument('new', help='Updated mission spec JSON')
     pmd.add_argument('--format', choices=['text', 'json'], default='text', help='Output format')
     pmd.set_defaults(func=cmd_mission_diff)
+
+    # Mission package command
+    pmp = sub.add_parser('mission-package', help='Create deployable mission package')
+    pmp.add_argument('file', help='Mission spec JSON path')
+    pmp.add_argument('--output-dir', help='Package output directory (defaults to CWD)')
+    pmp.add_argument('--package-id', help='Override package identifier')
+    pmp.add_argument('--schema', help="Optional MissionStateModel reference 'module:Class'")
+    pmp.add_argument('--artifact-policy', help='Artifact policy JSON path, inline JSON, or module:attr reference')
+    pmp.add_argument('--notes', help='Optional notes stored in manifest')
+    pmp.set_defaults(func=cmd_mission_package)
+
+    # Mission deploy command
+    pmdp = sub.add_parser('mission-deploy', help='Run deployment readiness checks on a package')
+    pmdp.add_argument('package', help='Path to mission package directory')
+    pmdp.add_argument('--env', dest='environment', help='Override environment label')
+    pmdp.add_argument('--workspace', help='Workspace path to prepare')
+    pmdp.add_argument('--report', help='Write deployment report JSON to path')
+    pmdp.add_argument('--import-policy', choices=['safe', 'allow_all'], default='allow_all', help='Tool import policy')
+    pmdp.set_defaults(func=cmd_mission_deploy)
 
     # Analyze command
     pa = sub.add_parser('analyze', help='Analyze graph structure and complexity')
