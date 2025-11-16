@@ -34,6 +34,7 @@ from spark.graphs.shared_memory import (
     MemoryAccessPolicy,
     AccessVisibility,
 )
+from spark.graphs.artifacts import ArtifactRecord, ArtifactStatus
 from spark.graphs.mailbox import MailboxPersistenceManager
 
 __all__ = [
@@ -72,5 +73,7 @@ __all__ = [
     "MemoryReference",
     "MemoryAccessPolicy",
     "AccessVisibility",
+    "ArtifactRecord",
+    "ArtifactStatus",
     "MailboxPersistenceManager",
 ]
