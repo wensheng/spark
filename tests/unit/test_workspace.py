@@ -4,7 +4,7 @@ import asyncio
 from pathlib import Path
 import pytest
 
-from spark.graphs.workspace import Workspace, WorkspaceMount, WorkspaceSecrets, WorkspaceManager
+from spark.graphs.workspace import Workspace, WorkspaceMount, WorkspaceSecrets, WorkspaceManager, WorkspacePolicy
 from spark.graphs import Graph
 from spark.nodes import Node
 from spark.nodes.types import ExecutionContext
@@ -53,3 +53,17 @@ async def test_graph_injects_workspace(tmp_path):
     assert workspace_root.exists()
     state_workspace = await graph.get_state('workspace')
     assert state_workspace['root'] == str(workspace_root)
+
+
+@pytest.mark.asyncio
+async def test_workspace_cleanup_policy(tmp_path):
+    class EchoNode(Node):
+        async def process(self, context: ExecutionContext):
+            return {'ok': True}
+
+    node = EchoNode()
+    workspace_root = tmp_path / 'mission'
+    workspace = Workspace(root=workspace_root, policy=WorkspacePolicy(cleanup_on_success=True))
+    graph = Graph(start=node, workspace=workspace)
+    await graph.run()
+    assert not workspace_root.exists()

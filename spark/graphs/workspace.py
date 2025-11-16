@@ -4,9 +4,17 @@ from __future__ import annotations
 
 import asyncio
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import Any, Callable, Iterable
+import shutil
+
+@dataclass(slots=True)
+class WorkspacePolicy:
+    """Lifecycle policy describing cleanup expectations."""
+
+    cleanup_on_success: bool = False
+    cleanup_on_failure: bool = False
 
 
 @dataclass(slots=True)
@@ -41,11 +49,13 @@ class Workspace:
         mounts: Iterable[WorkspaceMount] | None = None,
         secrets: WorkspaceSecrets | None = None,
         env: dict[str, str] | None = None,
+        policy: WorkspacePolicy | None = None,
     ) -> None:
         self.root = Path(root)
         self.mounts = list(mounts or [])
         self.secrets = secrets or WorkspaceSecrets()
         self.env = dict(env or {})
+        self.policy = policy or WorkspacePolicy()
 
     def describe(self) -> dict[str, Any]:
         return {
@@ -53,6 +63,7 @@ class Workspace:
             'mounts': [self._describe_mount(m) for m in self.mounts],
             'secrets': list(self.secrets.values.keys()),
             'env': dict(self.env),
+            'policy': asdict(self.policy),
         }
 
     def add_mount(self, mount: WorkspaceMount) -> None:
@@ -72,6 +83,11 @@ class Workspace:
         await asyncio.to_thread(self.root.mkdir, parents=True, exist_ok=True)
         for mount in self.mounts:
             await asyncio.to_thread(mount.path.mkdir, parents=True, exist_ok=True)
+
+    async def cleanup(self) -> None:
+        if not self.root.exists():
+            return
+        await asyncio.to_thread(shutil.rmtree, self.root, ignore_errors=True)
 
     def _describe_mount(self, mount: WorkspaceMount) -> dict[str, Any]:
         return {
@@ -95,6 +111,7 @@ class WorkspaceManager:
         mounts: Iterable[WorkspaceMount] | None = None,
         secrets: WorkspaceSecrets | None = None,
         env: dict[str, str] | None = None,
+        policy: WorkspacePolicy | None = None,
     ) -> Workspace:
-        workspace = self._factory(root=root, mounts=mounts, secrets=secrets, env=env)
+        workspace = self._factory(root=root, mounts=mounts, secrets=secrets, env=env, policy=policy)
         return workspace

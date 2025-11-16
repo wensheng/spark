@@ -275,6 +275,7 @@ class Graph(BaseGraph):
                 last_output=last_output,
                 metadata=after_metadata,
             )
+            await self._finalize_workspace(run_error)
 
     async def _run_internal(self, task: Task) -> Any:
         """Internal run implementation without timeout handling."""
@@ -711,6 +712,23 @@ class Graph(BaseGraph):
             return
         for node in self.nodes:
             setattr(node, '_graph_state', self.state)
+
+    async def _finalize_workspace(self, run_error: Exception | None) -> None:
+        if not self.workspace:
+            return
+        policy = getattr(self.workspace, 'policy', None)
+        if not policy:
+            return
+        should_cleanup = False
+        if run_error and policy.cleanup_on_failure:
+            should_cleanup = True
+        elif not run_error and policy.cleanup_on_success:
+            should_cleanup = True
+        if should_cleanup:
+            try:
+                await self.workspace.cleanup()
+            except Exception:
+                logger.exception("Workspace cleanup failed for %s", self.workspace.root)
 
     def _configure_edge_channels(self) -> None:
         for edge in self.edges:

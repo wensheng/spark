@@ -11,6 +11,7 @@ from typing import Any, Awaitable, Callable, Iterable, Optional, Sequence
 from spark.graphs.hooks import GraphLifecycleEvent
 from spark.graphs.graph import Graph
 from spark.nodes.nodes import Node
+from spark.graphs.workspace import Workspace, WorkspacePolicy
 
 try:  # Optional telemetry dependency
     from spark.telemetry import EventType
@@ -308,12 +309,15 @@ def spae_template(
     initial_state: dict[str, Any] | None = None,
     plan_steps: Sequence[str] | None = None,
     guardrails: Iterable[Guardrail] | None = None,
+    workspace: Workspace | None = None,
+    workspace_config: dict[str, Any] | None = None,
 ) -> Graph:
     """Sense→Plan→Act→Evaluate mission template."""
     sense.goto(plan)
     plan.goto(act)
     act.goto(evaluate)
-    graph = Graph(start=sense, initial_state=initial_state or {})
+    workspace_obj = workspace or _build_workspace_from_config(workspace_config)
+    graph = Graph(start=sense, initial_state=initial_state or {}, workspace=workspace_obj)
 
     plan_items = [
         PlanStep(id=f"step-{idx+1}", description=description)
@@ -323,3 +327,13 @@ def spae_template(
     controller = MissionControl(plan=mission_plan, guardrails=guardrails)
     controller.attach(graph)
     return graph
+
+
+def _build_workspace_from_config(config: dict[str, Any] | None) -> Workspace | None:
+    if not config:
+        return None
+    payload = dict(config)
+    policy_payload = payload.get('policy')
+    if policy_payload is not None and not isinstance(policy_payload, WorkspacePolicy):
+        payload['policy'] = WorkspacePolicy(**policy_payload)
+    return Workspace(**payload)

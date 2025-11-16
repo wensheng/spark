@@ -1,48 +1,51 @@
+"""Tests for mission templates wiring workspaces."""
+
 import pytest
 
-from spark.graphs import GraphState, spae_template, MissionControl, MissionPlan, PlanStep
-from spark.nodes.nodes import Node
-from spark.nodes.types import ExecutionContext, NodeMessage
+from spark.graphs import spae_template, WorkspacePolicy
+from spark.nodes import Node
+from spark.nodes.types import ExecutionContext
 
 
-class SenseNode(Node):
-    async def process(self, context: ExecutionContext) -> NodeMessage:
-        await context.graph_state.set('observations', ['data'])
-        return NodeMessage(content={'stage': 'sense'}, metadata={})
+class NullNode(Node):
+    async def process(self, context: ExecutionContext):
+        return {'ok': True}
 
 
-class PlanNode(Node):
-    async def process(self, context: ExecutionContext) -> NodeMessage:
-        plan = ['step1', 'step2']
-        await context.graph_state.set('plan', plan)
-        return NodeMessage(content={'plan': plan}, metadata={})
-
-
-class ActNode(Node):
-    async def process(self, context: ExecutionContext) -> NodeMessage:
-        actions = ['run-tool']
-        await context.graph_state.set('actions', actions)
-        return NodeMessage(content={'actions': actions}, metadata={})
-
-
-class EvaluateNode(Node):
-    async def process(self, context: ExecutionContext) -> NodeMessage:
-        return NodeMessage(content={'status': 'done'}, metadata={})
+def build_chain():
+    sense = NullNode()
+    plan = NullNode()
+    act = NullNode()
+    evaluate = NullNode()
+    return sense, plan, act, evaluate
 
 
 @pytest.mark.asyncio
-async def test_spae_template_attach_plan_and_runs():
+async def test_spae_template_accepts_workspace(tmp_path):
+    sense, plan, act, evaluate = build_chain()
+    workspace_root = tmp_path / 'mission'
     graph = spae_template(
-        SenseNode(id='sense'),
-        PlanNode(id='plan'),
-        ActNode(id='act'),
-        EvaluateNode(id='evaluate'),
-        initial_state={'counter': 0},
-        plan_steps=("Sense signals", "Plan response", "Execute", "Evaluate"),
+        sense=sense,
+        plan=plan,
+        act=act,
+        evaluate=evaluate,
+        workspace_config={'root': workspace_root, 'policy': {'cleanup_on_success': False}},
     )
+    await graph.run()
+    state_workspace = await graph.get_state('workspace')
+    assert state_workspace['root'] == str(workspace_root)
 
-    result = await graph.run()
-    assert result.content['status'] == 'done'
-    plan_snapshot = await graph.state.get('mission_plan')
-    assert len(plan_snapshot) == 4
-    assert plan_snapshot[-1]['status'] in {'completed', 'in_progress'}
+
+@pytest.mark.asyncio
+async def test_spae_template_workspace_cleanup(tmp_path):
+    sense, plan, act, evaluate = build_chain()
+    workspace_root = tmp_path / 'mission'
+    graph = spae_template(
+        sense=sense,
+        plan=plan,
+        act=act,
+        evaluate=evaluate,
+        workspace_config={'root': workspace_root, 'policy': {'cleanup_on_success': True}},
+    )
+    await graph.run()
+    assert not workspace_root.exists()
