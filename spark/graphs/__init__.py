@@ -26,7 +26,14 @@ from spark.graphs.mission_control import (
 )
 from spark.graphs.checkpoint import GraphCheckpoint, GraphCheckpointConfig
 from spark.graphs.state_schema import MissionStateModel
-from spark.graphs.shared_memory import SharedMemoryManager, KnowledgeGraph, MemoryRecord
+from spark.graphs.shared_memory import (
+    SharedMemoryManager,
+    KnowledgeGraph,
+    MemoryRecord,
+    MemoryReference,
+    MemoryAccessPolicy,
+    AccessVisibility,
+)
 from spark.graphs.mailbox import MailboxPersistenceManager
 
 __all__ = [
@@ -62,5 +69,8 @@ __all__ = [
     "SharedMemoryManager",
     "KnowledgeGraph",
     "MemoryRecord",
+    "MemoryReference",
+    "MemoryAccessPolicy",
+    "AccessVisibility",
     "MailboxPersistenceManager",
 ]
