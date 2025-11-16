@@ -26,6 +26,7 @@ from spark.graphs.tasks import (
     TaskType,
 )
 from spark.graphs.mailbox import MailboxPersistenceManager
+from spark.graphs.artifacts import ArtifactManager, ArtifactPolicy
 from spark.nodes.types import ExecutionContext, NodeMessage
 from spark.nodes.channels import ChannelMessage, ForwardingChannel, BaseChannel
 from spark.graphs.event_bus import GraphEventBus
@@ -76,6 +77,8 @@ class Graph(BaseGraph):
         state_backend = kwargs.pop('state_backend', None)
         mission_control = kwargs.pop('mission_control', None)
         workspace: Workspace | None = kwargs.pop('workspace', None)
+        artifact_manager: ArtifactManager | None = kwargs.pop('artifact_manager', None)
+        artifact_policy: ArtifactPolicy | None = kwargs.pop('artifact_policy', None)
         state_schema: type[BaseModel] | BaseModel | None = kwargs.pop('state_schema', None)
         checkpoint_config: GraphCheckpointConfig | None = kwargs.pop('checkpoint_config', None)
         super().__init__(*edges, **kwargs)
@@ -121,6 +124,9 @@ class Graph(BaseGraph):
         self._event_subscriptions: list[Any] = []
         self._mailbox_manager: MailboxPersistenceManager | None = None
         self.workspace: Workspace | None = workspace
+        self.artifacts: ArtifactManager | None = artifact_manager or (
+            ArtifactManager(self.state, policy=artifact_policy) if artifact_policy else None
+        )
 
     def register_hook(self, event: GraphLifecycleEvent | str, hook: HookFn) -> None:
         """Register a lifecycle hook handler for the graph runtime."""
@@ -276,6 +282,7 @@ class Graph(BaseGraph):
                 metadata=after_metadata,
             )
             await self._finalize_workspace(run_error)
+            await self._finalize_artifacts(run_error)
 
     async def _run_internal(self, task: Task) -> Any:
         """Internal run implementation without timeout handling."""
@@ -729,6 +736,14 @@ class Graph(BaseGraph):
                 await self.workspace.cleanup()
             except Exception:
                 logger.exception("Workspace cleanup failed for %s", self.workspace.root)
+
+    async def _finalize_artifacts(self, run_error: Exception | None) -> None:
+        if not self.artifacts:
+            return
+        try:
+            await self.artifacts.finalize(run_error)
+        except Exception:
+            logger.exception("Artifact lifecycle policy failed")
 
     def _configure_edge_channels(self) -> None:
         for edge in self.edges:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as _dt
+from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Iterable, Sequence
 from uuid import uuid4
@@ -25,6 +26,15 @@ class ArtifactStatus(str, Enum):
     DRAFT = "draft"
     FINAL = "final"
     DELETED = "deleted"
+
+
+@dataclass(slots=True)
+class ArtifactPolicy:
+    """Lifecycle rules for stored artifacts."""
+
+    cleanup_on_success: bool = False
+    cleanup_on_failure: bool = False
+    retain_per_type: int | None = None
 
 
 class ArtifactRecord(BaseModel):
@@ -60,10 +70,12 @@ class ArtifactManager:
         *,
         state_key: str = 'artifacts',
         policy_enforcer: Any | None = None,
+        policy: ArtifactPolicy | None = None,
     ) -> None:
         self._state = state
         self._state_key = state_key
         self._policy_enforcer = policy_enforcer
+        self._policy = policy or ArtifactPolicy()
 
     async def register_artifact(
         self,
@@ -191,6 +203,23 @@ class ArtifactManager:
                 pass
         return True
 
+    async def finalize(self, run_error: Exception | None = None) -> None:
+        """Apply lifecycle policies after a mission finishes."""
+        if not self._policy:
+            return
+        cleanup = False
+        if run_error and self._policy.cleanup_on_failure:
+            cleanup = True
+        elif not run_error and self._policy.cleanup_on_success:
+            cleanup = True
+        if cleanup:
+            artifacts = await self.list_artifacts()
+            for record in artifacts:
+                await self.delete_artifact(record.id, delete_blob=bool(record.blob_id))
+            return
+        if self._policy.retain_per_type:
+            await self._enforce_retention(self._policy.retain_per_type)
+
     def _normalize_policy(self, policy: MemoryAccessPolicy | dict[str, Any] | None) -> MemoryAccessPolicy:
         if policy is None:
             return MemoryAccessPolicy()
@@ -240,3 +269,17 @@ class ArtifactManager:
         if self._policy_enforcer:
             return bool(self._policy_enforcer(record, ctx, action))
         return record.access_policy.allows(agent_id=ctx.agent_id, roles=ctx.roles)
+
+    async def _enforce_retention(self, retain_per_type: int) -> None:
+        artifacts = await self.list_artifacts()
+        to_delete: list[str] = []
+        by_type: dict[str, list[ArtifactRecord]] = {}
+        for record in artifacts:
+            by_type.setdefault(record.artifact_type, []).append(record)
+        for artifact_type, records in by_type.items():
+            sorted_records = sorted(records, key=lambda r: r.created_at)
+            if len(sorted_records) > retain_per_type:
+                for record in sorted_records[:-retain_per_type]:
+                    to_delete.append(record.id)
+        for artifact_id in to_delete:
+            await self.delete_artifact(artifact_id, delete_blob=True)

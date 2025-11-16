@@ -3,7 +3,7 @@
 import pytest
 
 from spark.graphs import GraphState
-from spark.graphs.artifacts import ArtifactRecord, ArtifactStatus, ArtifactManager
+from spark.graphs.artifacts import ArtifactRecord, ArtifactStatus, ArtifactManager, ArtifactPolicy
 from spark.graphs.shared_memory import (
     MemoryReference,
     MemoryAccessPolicy,
@@ -94,3 +94,28 @@ async def test_artifact_manager_enforces_access():
     assert allowed == []
 
     await manager.delete_artifact(record.id, access_context={'agent_id': 'node1'})
+
+
+@pytest.mark.asyncio
+async def test_artifact_policy_cleanup(tmp_path):
+    state = GraphState(initial_state={})
+    await state.initialize()
+    policy = ArtifactPolicy(cleanup_on_success=True)
+    manager = ArtifactManager(state, policy=policy)
+    await manager.register_artifact(artifact_type='report', name='Report')
+    await manager.finalize(run_error=None)
+    assert await manager.list_artifacts() == []
+
+
+@pytest.mark.asyncio
+async def test_artifact_policy_retain(tmp_path):
+    state = GraphState(initial_state={})
+    await state.initialize()
+    policy = ArtifactPolicy(retain_per_type=1)
+    manager = ArtifactManager(state, policy=policy)
+    await manager.register_artifact(artifact_type='report', name='One')
+    await manager.register_artifact(artifact_type='report', name='Two')
+    await manager.finalize(run_error=Exception("failed"))
+    artifacts = await manager.list_artifacts()
+    assert len(artifacts) == 1
+    assert artifacts[0].name == 'Two'
