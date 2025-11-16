@@ -25,6 +25,7 @@ from spark.graphs.tasks import (
     TaskScheduler,
     TaskType,
 )
+from spark.graphs.mailbox import MailboxPersistenceManager
 from spark.nodes.types import ExecutionContext, NodeMessage
 from spark.nodes.channels import ChannelMessage, ForwardingChannel, BaseChannel
 from spark.graphs.event_bus import GraphEventBus
@@ -116,6 +117,7 @@ class Graph(BaseGraph):
         self._delay_tasks: list[asyncio.Task] = []
         self._event_tasks: list[asyncio.Task] = []
         self._event_subscriptions: list[Any] = []
+        self._mailbox_manager: MailboxPersistenceManager | None = None
 
     def register_hook(self, event: GraphLifecycleEvent | str, hook: HookFn) -> None:
         """Register a lifecycle hook handler for the graph runtime."""
@@ -248,6 +250,7 @@ class Graph(BaseGraph):
             run_error = exc
             raise
         finally:
+            await self._disable_mailbox_persistence()
             after_metadata = dict(run_metadata)
             after_metadata['timeout_configured'] = bool(timeout_seconds)
             if run_error:
@@ -279,14 +282,17 @@ class Graph(BaseGraph):
         self._event_tasks = []
         self._event_subscriptions = []
         self._event_edges_configured = False
+        is_long_lived_task = task.type in (TaskType.LONG_RUNNING, TaskType.RESUMABLE)
 
         # Ensure nodes are discovered for timeout handling
         if not self.nodes:
             self._discover_graph_from_start_node()
             self._channels_configured = False
 
-        self._prepare_runtime()
         await self.state.initialize()
+        if is_long_lived_task:
+            await self._enable_mailbox_persistence()
+        self._prepare_runtime()
         await self._configure_event_edges()
         await self._persist_task_metadata(task, 'running', extra={'started_at': time.time()})
         # Persist campaign metadata for downstream nodes/telemetry
@@ -320,7 +326,7 @@ class Graph(BaseGraph):
                     attach_telemetry_to_node(node, self._telemetry_manager)
 
         # Configure state mode based on task type
-        if task.type == TaskType.LONG_RUNNING:
+        if is_long_lived_task:
             self.state.enable_concurrent_mode()
         else:
             self.state.disable_concurrent_mode()
@@ -328,7 +334,7 @@ class Graph(BaseGraph):
         jobs: list[Coroutine[Any, Any, Optional[NodeMessage]]]
         last_output: NodeMessage | None = None
 
-        if task.type == TaskType.LONG_RUNNING:
+        if is_long_lived_task:
             # For long-running tasks, discover all nodes and start them as continuous workers
             all_nodes = self.nodes
             self._running_nodes = all_nodes  # Store for later stopping
@@ -349,13 +355,13 @@ class Graph(BaseGraph):
             await asyncio.gather(*jobs)
             self._running_nodes = None  # Clear after completion
 
-            # End telemetry trace for LONG_RUNNING
+            # End telemetry trace for long-lived runs
             if trace and self._telemetry_manager:
                 self._telemetry_manager.record_event(
                     type=EventType.GRAPH_FINISHED,
                     name="Graph execution finished",
                     trace_id=trace.trace_id,
-                    attributes={'task_type': 'LONG_RUNNING'}
+                    attributes={'task_type': task.type.value if hasattr(task.type, 'value') else str(task.type)}
                 )
                 self._telemetry_manager.end_trace(trace.trace_id)
 
@@ -680,6 +686,7 @@ class Graph(BaseGraph):
 
     def _prepare_runtime(self) -> None:
         """Ensure runtime services (event bus, channels, state) are configured."""
+        self._reset_node_stop_flags()
         self._attach_event_bus_to_nodes()
         self._attach_graph_state_to_nodes()
         if not self._channels_configured:
@@ -719,7 +726,29 @@ class Graph(BaseGraph):
                     metadata_defaults=metadata_defaults,
                     name=f'edge:{edge.id}',
                 )
-        self._channels_configured = True
+
+    async def _enable_mailbox_persistence(self) -> None:
+        """Swap node mailboxes with persistent channels for long-lived runs."""
+        if self._mailbox_manager:
+            return
+        manager = MailboxPersistenceManager(self.state, self.nodes, graph_id=self.id)
+        await manager.enable()
+        self._mailbox_manager = manager
+        self._channels_configured = False
+
+    async def _disable_mailbox_persistence(self) -> None:
+        """Restore original mailboxes if persistence was enabled."""
+        if not self._mailbox_manager:
+            return
+        await self._mailbox_manager.disable()
+        self._mailbox_manager = None
+        self._channels_configured = False
+
+    def _reset_node_stop_flags(self) -> None:
+        """Clear stop flags so nodes can be reused across runs."""
+        for node in self.nodes:
+            if hasattr(node, '_stop_flag'):
+                node._stop_flag = False
 
     async def _configure_event_edges(self) -> None:
         if self._event_edges_configured:
@@ -820,6 +849,9 @@ class Graph(BaseGraph):
             metadata=metadata,
         )
         checkpoint.metadata.setdefault('backend', self.state.describe_backend())
+        mailboxes = await self.state.mailbox_snapshot()
+        if mailboxes:
+            checkpoint.metadata['mailboxes'] = mailboxes
         return checkpoint
 
     async def restore_state(self, snapshot: GraphCheckpoint | dict[str, Any]) -> None:
@@ -839,6 +871,9 @@ class Graph(BaseGraph):
         await self.state.reset(dict(checkpoint_obj.state))
         if overrides:
             await self.state.update(dict(overrides))
+        mailboxes = checkpoint_obj.metadata.get('mailboxes')
+        if mailboxes:
+            await self.state.restore_mailboxes(mailboxes)
         resume_task = task.model_copy(deep=True) if task is not None else Task()
         resume_task.type = TaskType.RESUMABLE
         resume_task.metadata = dict(resume_task.metadata or {})

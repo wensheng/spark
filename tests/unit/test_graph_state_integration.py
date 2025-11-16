@@ -6,6 +6,7 @@ from pydantic import ValidationError
 from spark.nodes import Node, EdgeCondition
 from spark.graphs import Graph, Task, TaskType, GraphCheckpointConfig, MissionStateModel
 from spark.nodes.types import NodeMessage
+from spark.nodes.channels import ChannelMessage
 
 
 class CounterNode(Node):
@@ -333,6 +334,60 @@ class TestGraphStateIntegration:
         # Counter should be at least 5 (could be more due to concurrency)
         final_counter = await graph.get_state('counter')
         assert final_counter >= 5
+
+    @pytest.mark.asyncio
+    async def test_long_running_mailboxes_persist_and_resume(self):
+        """Long-lived missions persist mailbox queues across restarts."""
+
+        class SleepyRecorderNode(Node):
+            async def process(self, context):
+                await asyncio.sleep(0.05)
+                content = context.inputs.content or {}
+                value = content.get('value')
+                records = await context.graph_state.get('events', [])
+                if value is not None:
+                    records.append(value)
+                    await context.graph_state.set('events', records)
+                else:
+                    await context.graph_state.set('events', records)
+                return {'processed': value}
+
+        node = SleepyRecorderNode()
+        graph = Graph(start=node, initial_state={'events': []}, idle_timeout=0.05)
+
+        task = Task(
+            task_id='long',
+            type=TaskType.LONG_RUNNING,
+            inputs=NodeMessage(content={'value': 1})
+        )
+
+        run = asyncio.create_task(graph.run(task))
+        await asyncio.sleep(0.01)
+
+        await graph.start.mailbox.send(ChannelMessage(payload=NodeMessage(content={'value': 2})))
+        await asyncio.sleep(0.02)
+        graph.stop_all_nodes()
+        await run
+
+        events = await graph.get_state('events')
+        assert events == [1]
+
+        checkpoint = await graph.checkpoint_state()
+        mailbox_id = f"{graph.id}:{node.id}"
+        assert 'mailboxes' in checkpoint.metadata
+        assert mailbox_id in checkpoint.metadata['mailboxes']
+        persisted_entries = checkpoint.metadata['mailboxes'][mailbox_id]
+        node_entries = [entry for entry in persisted_entries if entry.get('payload_kind') == 'node_message']
+        assert node_entries
+        assert node_entries[0]['payload']['content']['value'] == 2
+
+        graph.reset_state({'events': []})
+        await graph.resume_from(checkpoint)
+        resumed_events = await graph.get_state('events')
+        assert resumed_events == [1, 2]
+
+        snapshot = await graph.state.mailbox_snapshot()
+        assert not snapshot.get(mailbox_id)
 
     @pytest.mark.asyncio
     async def test_state_with_complex_data(self):

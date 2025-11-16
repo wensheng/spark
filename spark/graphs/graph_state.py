@@ -16,6 +16,7 @@ class GraphState:
     """
 
     _SCHEMA_VERSION_KEY = '__schema_version__'
+    _MAILBOX_PREFIX = '__mailbox__'
 
     def __init__(
         self,
@@ -72,6 +73,9 @@ class GraphState:
             self._pending_initial_state.clear()
         await self._ensure_schema_version()
         self._initialized = True
+
+    def _mailbox_storage_key(self, mailbox_id: str) -> str:
+        return f"{self._MAILBOX_PREFIX}:{mailbox_id}"
 
     def enable_concurrent_mode(self) -> None:
         """Enable backend synchronization for long running tasks."""
@@ -185,11 +189,63 @@ class GraphState:
         )
         return f"GraphState(mode={mode}, keys={list(snapshot.keys())})"
 
+    async def load_mailbox_messages(self, mailbox_id: str) -> list[Any]:
+        """Load persisted mailbox entries for the given mailbox identifier."""
+        key = self._mailbox_storage_key(mailbox_id)
+        stored = await self._backend.get(key, None)
+        if not stored:
+            return []
+        if isinstance(stored, list):
+            return list(stored)
+        return []
+
+    async def persist_mailbox_messages(self, mailbox_id: str, entries: list[Any]) -> None:
+        """Persist the provided mailbox entries atomically."""
+        key = self._mailbox_storage_key(mailbox_id)
+        if entries:
+            await self._backend.set(key, list(entries))
+        else:
+            await self._backend.delete(key)
+
+    async def clear_mailboxes(self) -> None:
+        """Remove all persisted mailbox queues."""
+        prefix = f"{self._MAILBOX_PREFIX}:"
+        keys = await self._backend.keys()
+        for key in keys:
+            if key.startswith(prefix):
+                await self._backend.delete(key)
+
+    async def mailbox_snapshot(self) -> dict[str, list[Any]]:
+        """Return serialized queues for every persisted mailbox."""
+        prefix = f"{self._MAILBOX_PREFIX}:"
+        snapshot: dict[str, list[Any]] = {}
+        keys = await self._backend.keys()
+        for key in keys:
+            if not key.startswith(prefix):
+                continue
+            mailbox_id = key[len(prefix) :]
+            stored = await self._backend.get(key, None) or []
+            if isinstance(stored, list) and stored:
+                snapshot[mailbox_id] = list(stored)
+        return snapshot
+
+    async def restore_mailboxes(self, payload: dict[str, list[Any]] | None) -> None:
+        """Replace all persisted mailboxes with the provided payload."""
+        await self.clear_mailboxes()
+        if not payload:
+            return
+        for mailbox_id, entries in payload.items():
+            await self.persist_mailbox_messages(mailbox_id, list(entries))
+
     def _strip_metadata(self, snapshot: dict[str, Any]) -> dict[str, Any]:
-        if not self._schema_cls:
-            return dict(snapshot)
         data = dict(snapshot)
         data.pop(self._SCHEMA_VERSION_KEY, None)
+        if not data:
+            return data
+        prefix = f"{self._MAILBOX_PREFIX}:"
+        remove_keys = [key for key in data.keys() if key.startswith(prefix)]
+        for key in remove_keys:
+            data.pop(key, None)
         return data
 
     async def _ensure_schema_version(self) -> None:
