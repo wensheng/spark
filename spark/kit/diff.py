@@ -10,9 +10,10 @@ Provides tools for comparing GraphSpec instances:
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Set, Optional, Union
+from typing import Any, Dict, List, Set, Optional, Union, Tuple
 from dataclasses import dataclass, field
 from enum import Enum
+import textwrap
 
 from spark.nodes.spec import (
     GraphSpec,
@@ -21,6 +22,12 @@ from spark.nodes.spec import (
     ToolDefinitionSpec,
     GraphStateSpec,
     ConditionSpec,
+    MissionSpec,
+    MissionPlanSpec,
+    MissionPlanStepSpec,
+    MissionStrategyBindingSpec,
+    MissionStateSchemaSpec,
+    MissionDeploymentSpec,
 )
 
 
@@ -619,3 +626,323 @@ class SpecDiffer:
         lines.append('')
 
         return '\n'.join(lines)
+
+
+# ==============================================================================
+# Mission Spec Diffing
+# ==============================================================================
+
+@dataclass
+class PlanDiffSummary:
+    """Diff summary for mission plans."""
+
+    plan_added: bool = False
+    plan_removed: bool = False
+    metadata_changes: Dict[str, tuple[Any, Any]] = field(default_factory=dict)
+    added_steps: List[MissionPlanStepSpec] = field(default_factory=list)
+    removed_steps: List[MissionPlanStepSpec] = field(default_factory=list)
+    changed_steps: List[Tuple[str, MissionPlanStepSpec, MissionPlanStepSpec]] = field(default_factory=list)
+
+    @property
+    def has_changes(self) -> bool:
+        return (
+            self.plan_added
+            or self.plan_removed
+            or bool(self.metadata_changes)
+            or bool(self.added_steps)
+            or bool(self.removed_steps)
+            or bool(self.changed_steps)
+        )
+
+
+@dataclass
+class StrategyDiffSummary:
+    """Diff summary for mission strategy bindings."""
+
+    added: List[MissionStrategyBindingSpec] = field(default_factory=list)
+    removed: List[MissionStrategyBindingSpec] = field(default_factory=list)
+    changed: List[Tuple[MissionStrategyBindingSpec, MissionStrategyBindingSpec]] = field(default_factory=list)
+
+    @property
+    def has_changes(self) -> bool:
+        return bool(self.added or self.removed or self.changed)
+
+
+@dataclass
+class MissionSpecDiffResult:
+    """Aggregate diff for mission specs."""
+
+    mission1_id: str
+    mission2_id: str
+    mission1_version: str
+    mission2_version: str
+    metadata_changes: Dict[str, tuple[Any, Any]] = field(default_factory=dict)
+    plan_diff: PlanDiffSummary = field(default_factory=PlanDiffSummary)
+    strategy_diff: StrategyDiffSummary = field(default_factory=StrategyDiffSummary)
+    state_schema_changed: bool = False
+    state_schema_old: Optional[MissionStateSchemaSpec] = None
+    state_schema_new: Optional[MissionStateSchemaSpec] = None
+    telemetry_changed: bool = False
+    telemetry_old: Optional[Any] = None
+    telemetry_new: Optional[Any] = None
+    deployment_changed: bool = False
+    deployment_old: Optional[MissionDeploymentSpec] = None
+    deployment_new: Optional[MissionDeploymentSpec] = None
+    graph_diff: Optional[DiffResult] = None
+
+    @property
+    def has_changes(self) -> bool:
+        return (
+            bool(self.metadata_changes)
+            or (self.graph_diff.has_changes if self.graph_diff else False)
+            or self.plan_diff.has_changes
+            or self.strategy_diff.has_changes
+            or self.state_schema_changed
+            or self.telemetry_changed
+            or self.deployment_changed
+        )
+
+    @property
+    def summary(self) -> Dict[str, Any]:
+        summary = {}
+        if self.graph_diff:
+            summary.update(self.graph_diff.summary)
+        summary.update(
+            {
+                'metadata_changes': len(self.metadata_changes),
+                'plan_changes': len(self.plan_diff.added_steps)
+                + len(self.plan_diff.removed_steps)
+                + len(self.plan_diff.changed_steps)
+                + (1 if self.plan_diff.plan_added or self.plan_diff.plan_removed else 0)
+                + len(self.plan_diff.metadata_changes),
+                'strategy_changes': len(self.strategy_diff.added)
+                + len(self.strategy_diff.removed)
+                + len(self.strategy_diff.changed),
+                'state_schema_changed': self.state_schema_changed,
+                'telemetry_changed': self.telemetry_changed,
+                'deployment_changed': self.deployment_changed,
+            }
+        )
+        return summary
+
+    def as_dict(self) -> Dict[str, Any]:
+        return {
+            'mission_old': {'id': self.mission1_id, 'version': self.mission1_version},
+            'mission_new': {'id': self.mission2_id, 'version': self.mission2_version},
+            'metadata_changes': self.metadata_changes,
+            'plan': {
+                'plan_added': self.plan_diff.plan_added,
+                'plan_removed': self.plan_diff.plan_removed,
+                'metadata_changes': self.plan_diff.metadata_changes,
+                'added_steps': [step.model_dump() for step in self.plan_diff.added_steps],
+                'removed_steps': [step.model_dump() for step in self.plan_diff.removed_steps],
+                'changed_steps': [
+                    {'id': step_id, 'old': old.model_dump(), 'new': new.model_dump()}
+                    for step_id, old, new in self.plan_diff.changed_steps
+                ],
+            },
+            'strategies': {
+                'added': [binding.model_dump() for binding in self.strategy_diff.added],
+                'removed': [binding.model_dump() for binding in self.strategy_diff.removed],
+                'changed': [
+                    {
+                        'target': old.target,
+                        'reference': old.reference,
+                        'old': old.model_dump(),
+                        'new': new.model_dump(),
+                    }
+                    for (old, new) in self.strategy_diff.changed
+                ],
+            },
+            'state_schema_changed': self.state_schema_changed,
+            'state_schema_old': self.state_schema_old.model_dump() if self.state_schema_old else None,
+            'state_schema_new': self.state_schema_new.model_dump() if self.state_schema_new else None,
+            'telemetry_changed': self.telemetry_changed,
+            'deployment_changed': self.deployment_changed,
+            'graph_summary': self.graph_diff.summary if self.graph_diff else {},
+            'graph_has_changes': self.graph_diff.has_changes if self.graph_diff else False,
+        }
+
+    def __str__(self) -> str:
+        lines = [
+            f"Mission diff: {self.mission1_id} ({self.mission1_version}) → "
+            f"{self.mission2_id} ({self.mission2_version})",
+            "=" * 70,
+        ]
+
+        if not self.has_changes:
+            lines.append("No mission changes detected")
+            return "\n".join(lines)
+
+        if self.metadata_changes:
+            lines.append("Metadata changes:")
+            for key, (old, new) in self.metadata_changes.items():
+                lines.append(f"  - {key}: {old} → {new}")
+            lines.append("")
+
+        if self.plan_diff.has_changes:
+            lines.append("Plan changes:")
+            if self.plan_diff.plan_added:
+                lines.append("  + Plan added")
+            if self.plan_diff.plan_removed:
+                lines.append("  - Plan removed")
+            for key, (old, new) in self.plan_diff.metadata_changes.items():
+                lines.append(f"  * {key}: {old} → {new}")
+            for step in self.plan_diff.added_steps:
+                lines.append(f"  + Step {step.id}: {step.description}")
+            for step in self.plan_diff.removed_steps:
+                lines.append(f"  - Step {step.id}: {step.description}")
+            for step_id, old_step, new_step in self.plan_diff.changed_steps:
+                lines.append(f"  ~ Step {step_id}: {old_step.description} → {new_step.description}")
+            lines.append("")
+
+        if self.strategy_diff.has_changes:
+            lines.append("Strategy changes:")
+            for binding in self.strategy_diff.added:
+                lines.append(f"  + {binding.target}:{binding.reference} strategy {binding.strategy.type}")
+            for binding in self.strategy_diff.removed:
+                lines.append(f"  - {binding.target}:{binding.reference} strategy {binding.strategy.type}")
+            for old, new in self.strategy_diff.changed:
+                lines.append(
+                    f"  ~ {old.target}:{old.reference} strategy changed "
+                    f"{old.strategy.type} → {new.strategy.type}"
+                )
+            lines.append("")
+
+        if self.state_schema_changed:
+            lines.append("State schema changed.")
+            lines.append("")
+
+        if self.telemetry_changed:
+            lines.append("Telemetry configuration changed.")
+            lines.append("")
+
+        if self.deployment_changed:
+            lines.append("Deployment metadata changed.")
+            lines.append("")
+
+        if self.graph_diff and self.graph_diff.has_changes:
+            lines.append("Graph diff:")
+            lines.append(textwrap.indent(str(self.graph_diff), "  "))
+
+        return "\n".join(lines)
+
+
+def diff_mission_specs(
+    mission1: MissionSpec,
+    mission2: MissionSpec,
+    *,
+    differ: Optional[SpecDiffer] = None,
+) -> MissionSpecDiffResult:
+    """Diff two mission specs (graph + plan/strategy metadata)."""
+
+    differ = differ or SpecDiffer()
+    result = MissionSpecDiffResult(
+        mission1_id=mission1.mission_id,
+        mission2_id=mission2.mission_id,
+        mission1_version=mission1.version,
+        mission2_version=mission2.version,
+    )
+    result.graph_diff = differ.diff(mission1.graph, mission2.graph)
+
+    for key in ('mission_id', 'version', 'description'):
+        if getattr(mission1, key) != getattr(mission2, key):
+            result.metadata_changes[key] = (getattr(mission1, key), getattr(mission2, key))
+
+    result.plan_diff = _diff_plans(mission1.plan, mission2.plan)
+    result.strategy_diff = _diff_strategies(mission1.strategies, mission2.strategies)
+
+    if _schema_dump(mission1.state_schema) != _schema_dump(mission2.state_schema):
+        result.state_schema_changed = True
+        result.state_schema_old = mission1.state_schema
+        result.state_schema_new = mission2.state_schema
+
+    if _telemetry_dump(mission1.telemetry) != _telemetry_dump(mission2.telemetry):
+        result.telemetry_changed = True
+        result.telemetry_old = mission1.telemetry
+        result.telemetry_new = mission2.telemetry
+
+    if _deployment_dump(mission1.deployment) != _deployment_dump(mission2.deployment):
+        result.deployment_changed = True
+        result.deployment_old = mission1.deployment
+        result.deployment_new = mission2.deployment
+
+    return result
+
+
+def _diff_plans(plan1: Optional[MissionPlanSpec], plan2: Optional[MissionPlanSpec]) -> PlanDiffSummary:
+    summary = PlanDiffSummary()
+    if plan1 is None and plan2 is None:
+        return summary
+    if plan1 is None and plan2 is not None:
+        summary.plan_added = True
+        summary.added_steps = list(plan2.steps)
+        return summary
+    if plan1 is not None and plan2 is None:
+        summary.plan_removed = True
+        summary.removed_steps = list(plan1.steps)
+        return summary
+
+    plan1 = plan1 or MissionPlanSpec(name='mission_plan')
+    plan2 = plan2 or MissionPlanSpec(name='mission_plan')
+
+    if plan1.name != plan2.name:
+        summary.metadata_changes['name'] = (plan1.name, plan2.name)
+    if plan1.description != plan2.description:
+        summary.metadata_changes['description'] = (plan1.description, plan2.description)
+    if plan1.auto_advance != plan2.auto_advance:
+        summary.metadata_changes['auto_advance'] = (plan1.auto_advance, plan2.auto_advance)
+    if plan1.telemetry_topic != plan2.telemetry_topic:
+        summary.metadata_changes['telemetry_topic'] = (plan1.telemetry_topic, plan2.telemetry_topic)
+
+    steps1 = {step.id: step for step in plan1.steps}
+    steps2 = {step.id: step for step in plan2.steps}
+
+    for step_id, step in steps2.items():
+        if step_id not in steps1:
+            summary.added_steps.append(step)
+        else:
+            if step != steps1[step_id]:
+                summary.changed_steps.append((step_id, steps1[step_id], step))
+
+    for step_id, step in steps1.items():
+        if step_id not in steps2:
+            summary.removed_steps.append(step)
+
+    return summary
+
+
+def _diff_strategies(
+    strategies1: List[MissionStrategyBindingSpec],
+    strategies2: List[MissionStrategyBindingSpec],
+) -> StrategyDiffSummary:
+    summary = StrategyDiffSummary()
+
+    map1 = {(s.target, s.reference): s for s in strategies1}
+    map2 = {(s.target, s.reference): s for s in strategies2}
+
+    for key, binding in map2.items():
+        if key not in map1:
+            summary.added.append(binding)
+        else:
+            other = map1[key]
+            if other.strategy != binding.strategy or other.metadata != binding.metadata:
+                summary.changed.append((other, binding))
+
+    for key, binding in map1.items():
+        if key not in map2:
+            summary.removed.append(binding)
+
+    return summary
+
+
+def _schema_dump(schema: Optional[MissionStateSchemaSpec]) -> Optional[Dict[str, Any]]:
+    return schema.model_dump() if schema else None
+
+
+def _telemetry_dump(telemetry: Optional[Any]) -> Optional[Dict[str, Any]]:
+    return telemetry.model_dump() if telemetry else None
+
+
+def _deployment_dump(deployment: Optional[MissionDeploymentSpec]) -> Optional[Dict[str, Any]]:
+    return deployment.model_dump() if deployment else None

@@ -27,11 +27,28 @@ from typing import Any, Type
 from spark.graphs.base import BaseGraph
 from spark.graphs.mission_control import MissionPlan
 from spark.graphs.state_schema import MissionStateModel
-from spark.nodes.serde import graph_to_spec, save_graph_json, load_graph_spec
+from spark.nodes.serde import (
+    graph_to_spec,
+    save_graph_json,
+    load_graph_spec,
+    save_mission_spec,
+    load_mission_spec,
+)
 from spark.kit.codegen import generate, CodeGenerator
 from spark.kit.analysis import GraphAnalyzer
-from spark.kit.diff import SpecDiffer
-from spark.nodes.spec import GraphSpec, NodeSpec, EdgeSpec
+from spark.kit.diff import SpecDiffer, diff_mission_specs
+from spark.nodes.spec import (
+    GraphSpec,
+    NodeSpec,
+    EdgeSpec,
+    MissionSpec,
+    MissionPlanSpec,
+    MissionPlanStepSpec,
+    MissionStrategyBindingSpec,
+    MissionStateSchemaSpec,
+    ReasoningStrategySpec,
+    MissionDeploymentSpec,
+)
 
 
 def _import_attr(target: str) -> Any:
@@ -189,6 +206,132 @@ def cmd_generate(args: argparse.Namespace) -> int:
     else:
         print(json.dumps(payload, ensure_ascii=False, indent=2))
     return 0
+
+
+def cmd_mission_generate(args: argparse.Namespace) -> int:
+    """Generate a mission spec (graph + plan + strategies) from a description."""
+    desc = args.desc
+    if os.path.isfile(desc):
+        with open(desc, 'r', encoding='utf-8') as f:
+            desc = f.read().strip()
+
+    node_id = 'entry'
+    node = NodeSpec(id=node_id, type='Node', description=desc or 'entry node', config={})
+    graph = GraphSpec(
+        id=f'{args.mission_id}.graph',
+        description=desc or None,
+        start=node_id,
+        nodes=[node],
+        edges=[],
+    )
+
+    plan = None
+    if not args.no_plan:
+        plan = MissionPlanSpec(
+            name='spae_plan',
+            description='Sense → Plan → Act → Evaluate scaffold',
+            steps=[
+                MissionPlanStepSpec(id='sense', description='Collect mission context'),
+                MissionPlanStepSpec(id='plan', description='Draft mission plan', depends_on=['sense']),
+                MissionPlanStepSpec(id='act', description='Execute nodes/tools', depends_on=['plan']),
+                MissionPlanStepSpec(id='evaluate', description='Review outcomes', depends_on=['act']),
+            ],
+        )
+
+    strategies: list[MissionStrategyBindingSpec] = []
+    if not args.no_strategy:
+        strategy_cfg = {'type': args.strategy}
+        if args.strategy == 'custom':
+            if not args.strategy_class:
+                print('custom strategy requires --strategy-class', file=sys.stderr)
+                return 2
+            strategy_cfg['custom_class'] = args.strategy_class
+        strategies.append(
+            MissionStrategyBindingSpec(
+                target='graph',
+                reference='graph',
+                strategy=ReasoningStrategySpec.model_validate(strategy_cfg),
+            )
+        )
+
+    state_schema = None
+    if not args.no_schema:
+        state_schema = MissionStateSchemaSpec(name=args.schema_name, version=args.schema_version)
+
+    deployment = None
+    if not args.no_deployment:
+        deployment = MissionDeploymentSpec(
+            environment=args.deploy_environment,
+            runtime=args.deploy_runtime,
+            entrypoint=args.deploy_entrypoint,
+            health_check=args.deploy_health_check,
+        )
+
+    mission = MissionSpec(
+        mission_id=args.mission_id,
+        version=args.version,
+        description=desc or None,
+        graph=graph,
+        plan=plan,
+        strategies=strategies,
+        state_schema=state_schema,
+        deployment=deployment,
+    )
+
+    if args.output:
+        save_mission_spec(args.output, mission, indent=2)
+        print(f'Wrote mission spec to {args.output}')
+    else:
+        print(json.dumps(mission.model_dump(), ensure_ascii=False, indent=2))
+    return 0
+
+
+def cmd_mission_validate(args: argparse.Namespace) -> int:
+    """Validate a mission spec JSON file."""
+    try:
+        mission = load_mission_spec(args.file)
+    except Exception as exc:
+        print(f'Invalid mission spec: {exc}', file=sys.stderr)
+        return 2
+
+    print(f'Valid mission spec: {mission.mission_id} v{mission.version}')
+    print(f'  Graph nodes={len(mission.graph.nodes)}, edges={len(mission.graph.edges)}')
+    if mission.plan:
+        print(f'  Plan steps={len(mission.plan.steps)}')
+    if mission.strategies:
+        print(f'  Strategy bindings={len(mission.strategies)}')
+
+    if getattr(args, 'semantic', False):
+        analyzer = GraphAnalyzer(mission.graph)
+        issues = analyzer.validate_semantics()
+        if issues:
+            print('\nSemantic issues:')
+            for issue in issues:
+                print(f'  ⚠ {issue}')
+            if getattr(args, 'strict', False):
+                return 2
+        else:
+            print('✓ No semantic issues detected')
+
+    return 0
+
+
+def cmd_mission_diff(args: argparse.Namespace) -> int:
+    """Diff two mission specs (graph + metadata)."""
+    try:
+        mission_old = load_mission_spec(args.old)
+        mission_new = load_mission_spec(args.new)
+    except Exception as exc:
+        print(f'Error loading mission specs: {exc}', file=sys.stderr)
+        return 2
+
+    diff_result = diff_mission_specs(mission_old, mission_new)
+    if args.format == 'json':
+        print(json.dumps(diff_result.as_dict(), ensure_ascii=False, indent=2))
+    else:
+        print(diff_result)
+
+    return 1 if diff_result.has_changes else 0
 
 
 # ==============================================================================
@@ -705,6 +848,45 @@ def build_parser() -> argparse.ArgumentParser:
     pg.add_argument('desc', help='Description text or path to a file')
     pg.add_argument('-o', '--output', help='Output file path (stdout if omitted)')
     pg.set_defaults(func=cmd_generate)
+
+    # Mission generate command
+    pmg = sub.add_parser('mission-generate', help='Generate mission spec from description')
+    pmg.add_argument('desc', help='Description text or path to file')
+    pmg.add_argument('-o', '--output', help='Output file path (stdout if omitted)')
+    pmg.add_argument('--mission-id', default='mission.generated', help='Mission identifier')
+    pmg.add_argument('--version', default='1.0', help='Mission version')
+    pmg.add_argument(
+        '--strategy',
+        choices=['noop', 'react', 'chain_of_thought', 'plan_and_solve', 'custom'],
+        default='plan_and_solve',
+        help='Strategy binding for the generated mission',
+    )
+    pmg.add_argument('--strategy-class', help='Module:Class for custom strategy bindings')
+    pmg.add_argument('--no-plan', action='store_true', help='Skip default mission plan generation')
+    pmg.add_argument('--no-strategy', action='store_true', help='Skip default strategy binding')
+    pmg.add_argument('--no-schema', action='store_true', help='Skip default state schema metadata')
+    pmg.add_argument('--schema-name', default='MissionState', help='Default schema name when included')
+    pmg.add_argument('--schema-version', default='1.0', help='Default schema version when included')
+    pmg.add_argument('--no-deployment', action='store_true', help='Skip deployment metadata')
+    pmg.add_argument('--deploy-environment', default='dev', help='Deployment environment identifier')
+    pmg.add_argument('--deploy-runtime', default=None, help='Runtime (service, batch, worker)')
+    pmg.add_argument('--deploy-entrypoint', default=None, help='Deployment entrypoint reference')
+    pmg.add_argument('--deploy-health-check', default=None, help='Health check command or path')
+    pmg.set_defaults(func=cmd_mission_generate)
+
+    # Mission validate command
+    pmv = sub.add_parser('mission-validate', help='Validate mission spec JSON file')
+    pmv.add_argument('file', help='Mission spec JSON path')
+    pmv.add_argument('--semantic', action='store_true', help='Validate underlying graph semantics')
+    pmv.add_argument('--strict', action='store_true', help='Fail when semantic issues are present')
+    pmv.set_defaults(func=cmd_mission_validate)
+
+    # Mission diff command
+    pmd = sub.add_parser('mission-diff', help='Diff two mission specs (graph + metadata)')
+    pmd.add_argument('old', help='Baseline mission spec JSON')
+    pmd.add_argument('new', help='Updated mission spec JSON')
+    pmd.add_argument('--format', choices=['text', 'json'], default='text', help='Output format')
+    pmd.set_defaults(func=cmd_mission_diff)
 
     # Analyze command
     pa = sub.add_parser('analyze', help='Analyze graph structure and complexity')

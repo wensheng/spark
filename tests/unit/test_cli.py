@@ -18,7 +18,16 @@ import os
 from pathlib import Path
 
 from spark.kit.spec_cli import main
-from spark.nodes.spec import GraphSpec, NodeSpec, EdgeSpec
+from spark.nodes.spec import (
+    GraphSpec,
+    NodeSpec,
+    EdgeSpec,
+    MissionSpec,
+    MissionPlanSpec,
+    MissionPlanStepSpec,
+    MissionStrategyBindingSpec,
+    ReasoningStrategySpec,
+)
 from spark.graphs.graph import Graph
 from spark.nodes.nodes import Node
 
@@ -113,6 +122,39 @@ def two_spec_files(tmp_path):
         json.dump(spec2.model_dump(), f, indent=2)
 
     return str(spec1_file), str(spec2_file)
+
+
+@pytest.fixture
+def mission_spec_file(tmp_path):
+    """Create a sample mission spec file."""
+    graph = GraphSpec(
+        id='mission.graph',
+        start='entry',
+        nodes=[NodeSpec(id='entry', type='Node')],
+        edges=[],
+    )
+    mission = MissionSpec(
+        mission_id='mission.example',
+        version='1.0',
+        graph=graph,
+        plan=MissionPlanSpec(
+            steps=[
+                MissionPlanStepSpec(id='sense', description='collect'),
+                MissionPlanStepSpec(id='act', description='act', depends_on=['sense']),
+            ]
+        ),
+        strategies=[
+            MissionStrategyBindingSpec(
+                target='graph',
+                reference='graph',
+                strategy=ReasoningStrategySpec(type='plan_and_solve'),
+            )
+        ],
+    )
+    spec_file = tmp_path / 'mission.json'
+    with open(spec_file, 'w') as f:
+        json.dump(mission.model_dump(), f, indent=2)
+    return str(spec_file)
 
 
 # ==============================================================================
@@ -219,6 +261,52 @@ def test_diff_command_identical_specs(simple_spec_file, capsys):
 
     captured = capsys.readouterr()
     assert 'No changes' in captured.out
+
+
+# ==============================================================================
+# Mission CLI Tests
+# ==============================================================================
+
+
+def test_mission_generate_command(tmp_path):
+    """Generate command should emit mission spec JSON."""
+    out_file = tmp_path / 'mission.json'
+    exit_code = main(['mission-generate', 'Demo mission', '--output', str(out_file)])
+    assert exit_code == 0
+    assert out_file.exists()
+
+    payload = json.loads(out_file.read_text())
+    assert payload['mission_id'] == 'mission.generated'
+    assert payload['graph']['id'] == 'mission.generated.graph'
+    assert payload['graph']['nodes']
+    assert payload['deployment']['environment'] == 'dev'
+
+
+def test_mission_validate_command(mission_spec_file, capsys):
+    """Validate mission spec CLI."""
+    exit_code = main(['mission-validate', mission_spec_file])
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert 'Valid mission spec' in captured.out
+
+
+def test_mission_diff_command(tmp_path, mission_spec_file, capsys):
+    """Mission diff should detect plan/version updates."""
+    updated_file = tmp_path / 'mission_new.json'
+    with open(mission_spec_file) as f:
+        payload = json.load(f)
+    payload['version'] = '1.1'
+    payload.setdefault('plan', {}).setdefault('steps', []).append(
+        {'id': 'review', 'description': 'Review results', 'depends_on': ['act']}
+    )
+    with open(updated_file, 'w') as f:
+        json.dump(payload, f, indent=2)
+
+    exit_code = main(['mission-diff', mission_spec_file, str(updated_file)])
+    assert exit_code == 1
+    captured = capsys.readouterr()
+    assert 'Mission diff' in captured.out
+    assert 'Plan changes' in captured.out
 
 
 # ==============================================================================

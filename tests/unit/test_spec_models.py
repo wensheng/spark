@@ -42,6 +42,10 @@ from spark.nodes.spec import (
     # Core Specs
     GraphSpec,
     NodeSpec,
+    MissionPlanSpec,
+    MissionPlanStepSpec,
+    MissionStrategyBindingSpec,
+    MissionSpec,
 )
 
 
@@ -540,6 +544,87 @@ def test_graph_spec_validates_unique_node_ids():
             ]
         )
     assert 'duplicate' in str(exc_info.value)
+
+
+# ==============================================================================
+# Mission Spec Tests
+# ==============================================================================
+
+
+def test_mission_plan_spec_dependency_validation():
+    """Plan steps must reference valid IDs."""
+    with pytest.raises(ValidationError):
+        MissionPlanSpec(
+            steps=[
+                MissionPlanStepSpec(id='sense', description='collect context'),
+                MissionPlanStepSpec(id='act', description='act', depends_on=['missing']),
+            ]
+        )
+
+
+def test_mission_plan_spec_unique_ids():
+    """Duplicate plan step IDs are rejected."""
+    with pytest.raises(ValidationError):
+        MissionPlanSpec(
+            steps=[
+                MissionPlanStepSpec(id='sense', description='collect context'),
+                MissionPlanStepSpec(id='sense', description='duplicate'),
+            ]
+        )
+
+
+def test_mission_spec_combines_plan_and_strategy():
+    """MissionSpec composes graph, plan, and strategy bindings."""
+    plan = MissionPlanSpec(
+        steps=[
+            MissionPlanStepSpec(id='sense', description='collect'),
+            MissionPlanStepSpec(id='act', description='act', depends_on=['sense']),
+        ]
+    )
+    strategy = MissionStrategyBindingSpec(
+        target='graph',
+        reference='graph',
+        strategy=ReasoningStrategySpec(type='plan_and_solve'),
+    )
+    graph = GraphSpec(
+        id='mission.graph',
+        start='entry',
+        nodes=[NodeSpec(id='entry', type='Node')],
+        edges=[],
+    )
+    mission = MissionSpec(
+        mission_id='mission.test',
+        version='1.0',
+        graph=graph,
+        plan=plan,
+        strategies=[strategy],
+    )
+    assert mission.graph.id == 'mission.graph'
+    assert mission.plan is not None
+    assert mission.plan.steps[1].depends_on == ['sense']
+    assert mission.strategies[0].strategy.type == 'plan_and_solve'
+
+
+def test_mission_spec_duplicate_strategy_bindings_disallowed():
+    """MissionSpec rejects duplicate bindings per target/reference."""
+    strategy = MissionStrategyBindingSpec(
+        target='graph',
+        reference='graph',
+        strategy=ReasoningStrategySpec(type='react'),
+    )
+    graph = GraphSpec(
+        id='mission.graph',
+        start='entry',
+        nodes=[NodeSpec(id='entry', type='Node')],
+        edges=[],
+    )
+    with pytest.raises(ValidationError):
+        MissionSpec(
+            mission_id='mission.test',
+            version='1.0',
+            graph=graph,
+            strategies=[strategy, strategy],
+        )
 
 
 # ==============================================================================

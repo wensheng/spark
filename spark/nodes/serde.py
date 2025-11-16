@@ -51,6 +51,7 @@ from spark.nodes.spec import (
     MissionStateSchemaSpec,
     TaskSpec,
     BudgetSpec,
+    MissionSpec,
 )
 
 logger = logging.getLogger(__name__)
@@ -736,3 +737,26 @@ def load_graph_spec(path: str) -> GraphSpec:
     with open(path, 'r', encoding='utf-8') as f:
         data = _json.load(f)
     return GraphSpec.model_validate(data)
+
+
+def mission_spec_to_json(mission: MissionSpec, *, indent: int = 2) -> str:
+    """Serialize a MissionSpec to JSON string."""
+    import json as _json
+
+    return _json.dumps(mission.model_dump(), ensure_ascii=False, indent=indent)
+
+
+def save_mission_spec(path: str, mission: MissionSpec, *, indent: int = 2) -> None:
+    """Write MissionSpec JSON payload to disk."""
+    content = mission_spec_to_json(mission, indent=indent)
+    with open(path, 'w', encoding='utf-8') as f:
+        f.write(content)
+
+
+def load_mission_spec(path: str) -> MissionSpec:
+    """Load MissionSpec JSON from disk and validate."""
+    import json as _json
+
+    with open(path, 'r', encoding='utf-8') as f:
+        data = _json.load(f)
+    return MissionSpec.model_validate(data)

@@ -1037,3 +1037,109 @@ class GraphSpec(BaseModel):
         payload = self.model_dump()
         payload['edges'] = [e.model_dump_standard() for e in self.edges]
         return payload
+
+
+class MissionPlanStepSpec(BaseModel):
+    """Declarative mission plan step."""
+
+    model_config = ConfigDict(extra='ignore')
+
+    id: str
+    description: str
+    depends_on: list[str] = Field(default_factory=list)
+
+
+class MissionPlanSpec(BaseModel):
+    """Mission-level plan definition rendered by strategies and templates."""
+
+    model_config = ConfigDict(extra='ignore')
+
+    name: str = 'mission_plan'
+    description: Optional[str] = None
+    steps: list[MissionPlanStepSpec] = Field(default_factory=list)
+    auto_advance: bool = True
+    telemetry_topic: Optional[str] = None
+
+    @field_validator('steps')
+    @classmethod
+    def unique_step_ids(cls, steps: list[MissionPlanStepSpec]) -> list[MissionPlanStepSpec]:
+        seen: set[str] = set()
+        for step in steps:
+            if step.id in seen:
+                raise ValueError(f'duplicate plan step id: {step.id}')
+            seen.add(step.id)
+        return steps
+
+    @model_validator(mode='after')
+    def _validate_dependencies(self) -> 'MissionPlanSpec':
+        step_ids = {step.id for step in self.steps}
+        for step in self.steps:
+            for dep in step.depends_on:
+                if dep not in step_ids:
+                    raise ValueError(f'plan step {step.id!r} depends on unknown step {dep!r}')
+        return self
+
+
+class MissionStrategyBindingSpec(BaseModel):
+    """Binding between a mission component (graph/agent/subgraph) and a strategy."""
+
+    model_config = ConfigDict(extra='ignore')
+
+    target: Literal['graph', 'agent', 'subgraph'] = 'graph'
+    reference: str = 'graph'
+    description: Optional[str] = None
+    strategy: ReasoningStrategySpec
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class MissionTelemetrySpec(BaseModel):
+    """Mission-level telemetry/export configuration."""
+
+    model_config = ConfigDict(extra='ignore')
+
+    enabled: bool = True
+    backend: Optional[str] = None
+    topics: list[str] = Field(default_factory=list)
+    sampling_rate: Optional[float] = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class MissionDeploymentSpec(BaseModel):
+    """Deployment metadata for packaging/rollout."""
+
+    model_config = ConfigDict(extra='ignore')
+
+    environment: str = 'dev'
+    runtime: Optional[str] = None
+    entrypoint: Optional[str] = None
+    health_check: Optional[str] = None
+    scaling: dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class MissionSpec(BaseModel):
+    """Full mission package describing graph, plan, strategies, and deployment metadata."""
+
+    model_config = ConfigDict(extra='ignore')
+
+    spark_version: str = '2.0'
+    mission_id: str
+    version: str = '1.0'
+    description: Optional[str] = None
+    graph: GraphSpec
+    plan: Optional[MissionPlanSpec] = None
+    strategies: list[MissionStrategyBindingSpec] = Field(default_factory=list)
+    state_schema: Optional[MissionStateSchemaSpec] = None
+    telemetry: Optional[MissionTelemetrySpec] = None
+    deployment: Optional[MissionDeploymentSpec] = None
+
+    @field_validator('strategies')
+    @classmethod
+    def unique_strategy_bindings(cls, bindings: list[MissionStrategyBindingSpec]) -> list[MissionStrategyBindingSpec]:
+        seen: set[tuple[str, str]] = set()
+        for binding in bindings:
+            key = (binding.target, binding.reference)
+            if key in seen:
+                raise ValueError(f'duplicate strategy binding for {binding.target}:{binding.reference}')
+            seen.add(key)
+        return bindings
