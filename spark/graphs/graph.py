@@ -27,6 +27,7 @@ from spark.graphs.tasks import (
 )
 from spark.graphs.mailbox import MailboxPersistenceManager
 from spark.graphs.artifacts import ArtifactManager, ArtifactPolicy
+from spark.utils.logging_utils import structured_log_context, get_structured_logger
 from spark.nodes.types import ExecutionContext, NodeMessage
 from spark.nodes.channels import ChannelMessage, ForwardingChannel, BaseChannel
 from spark.graphs.event_bus import GraphEventBus
@@ -241,48 +242,67 @@ class Graph(BaseGraph):
 
         final_result: Any = None
         run_error: Exception | None = None
-        try:
-            if timeout_seconds:
-                # Run with timeout
-                final_result = await asyncio.wait_for(self._run_internal(task), timeout=timeout_seconds)
-            else:
-                # Run without timeout
-                final_result = await self._run_internal(task)
-            return final_result
-        except asyncio.TimeoutError as e:
-            # Timeout exceeded, stop all nodes gracefully
-            self.stop_all_nodes()
-            new_exc = TimeoutError(f"Graph execution exceeded max_seconds budget of {timeout_seconds} seconds")
-            run_error = new_exc
-            raise new_exc from e
-        except Exception as exc:
-            run_error = exc
-            raise
-        finally:
-            await self._disable_mailbox_persistence()
-            after_metadata = dict(run_metadata)
-            after_metadata['timeout_configured'] = bool(timeout_seconds)
-            if run_error:
-                after_metadata['error'] = str(run_error)
-                after_metadata['error_type'] = type(run_error).__name__
-            if final_result is not None:
-                after_metadata['result'] = final_result
-            duration = time.perf_counter() - run_started_at
-            task_status = 'failed' if run_error else 'completed'
-            status_extra = {'duration_seconds': duration}
-            if run_error:
-                status_extra['error'] = str(run_error)
-                status_extra['error_type'] = type(run_error).__name__
-            await self._persist_task_metadata(task, task_status, extra=status_extra)
-            last_output = final_result if isinstance(final_result, NodeMessage) else None
-            await self._emit_lifecycle_event(
-                GraphLifecycleEvent.AFTER_RUN,
-                task,
-                last_output=last_output,
-                metadata=after_metadata,
-            )
-            await self._finalize_workspace(run_error)
-            await self._finalize_artifacts(run_error)
+        structured_logger = get_structured_logger()
+        context_fields = {
+            'graph_id': self.id,
+            'graph_class': self.__class__.__name__,
+            'task_id': task.task_id,
+            'task_type': task.type.value if hasattr(task.type, 'value') else str(task.type),
+        }
+        campaign_info = getattr(task, 'campaign', None)
+        if campaign_info:
+            context_fields['campaign_id'] = getattr(campaign_info, 'campaign_id', None)
+
+        with structured_log_context(**context_fields):
+            structured_logger.info('graph.run.start')
+            try:
+                if timeout_seconds:
+                    # Run with timeout
+                    final_result = await asyncio.wait_for(self._run_internal(task), timeout=timeout_seconds)
+                else:
+                    # Run without timeout
+                    final_result = await self._run_internal(task)
+                return final_result
+            except asyncio.TimeoutError as e:
+                # Timeout exceeded, stop all nodes gracefully
+                self.stop_all_nodes()
+                new_exc = TimeoutError(f"Graph execution exceeded max_seconds budget of {timeout_seconds} seconds")
+                run_error = new_exc
+                raise new_exc from e
+            except Exception as exc:
+                run_error = exc
+                raise
+            finally:
+                await self._disable_mailbox_persistence()
+                after_metadata = dict(run_metadata)
+                after_metadata['timeout_configured'] = bool(timeout_seconds)
+                if run_error:
+                    after_metadata['error'] = str(run_error)
+                    after_metadata['error_type'] = type(run_error).__name__
+                if final_result is not None:
+                    after_metadata['result'] = final_result
+                duration = time.perf_counter() - run_started_at
+                task_status = 'failed' if run_error else 'completed'
+                status_extra = {'duration_seconds': duration}
+                if run_error:
+                    status_extra['error'] = str(run_error)
+                    status_extra['error_type'] = type(run_error).__name__
+                await self._persist_task_metadata(task, task_status, extra=status_extra)
+                last_output = final_result if isinstance(final_result, NodeMessage) else None
+                await self._emit_lifecycle_event(
+                    GraphLifecycleEvent.AFTER_RUN,
+                    task,
+                    last_output=last_output,
+                    metadata=after_metadata,
+                )
+                structured_logger.info(
+                    'graph.run.finish',
+                    status=task_status,
+                    duration_seconds=duration,
+                    error=str(run_error) if run_error else None,
+                )
+                await self._finalize_workspace(run_error)
+                await self._finalize_artifacts(run_error)
 
     async def _run_internal(self, task: Task) -> Any:
         """Internal run implementation without timeout handling."""

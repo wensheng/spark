@@ -121,6 +121,9 @@ class TelemetryManager:
         elif self.config.backend == 'postgresql':
             from spark.telemetry.backends.postgresql import PostgreSQLBackend
             self._backend = PostgreSQLBackend(self.config.backend_config)
+        elif self.config.backend == 'otlp_http':
+            from spark.telemetry.backends.otlp import OtlpHttpBackend
+            self._backend = OtlpHttpBackend(self.config.backend_config)
         else:
             raise ValueError(f"Unknown backend: {self.config.backend}")
 
