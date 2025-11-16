@@ -29,3 +29,19 @@ Export from a Python graph (example pattern):
     python -m spark.kit.spec_cli export spark_package.examples.e003_simple_flow:main
     
 adjust to a graph factory that returns Graph
+
+**Governance helpers**
+
+List pending approvals from a persisted GraphState (JSON or SQLite):
+
+    python -m spark.kit.spec_cli approval-list --state run_state.json --status pending
+
+Resolve an approval request:
+
+    python -m spark.kit.spec_cli approval-resolve ap-123 --state run_state.json --status approved --reviewer ops
+
+Scaffold and validate policy sets:
+
+    python -m spark.kit.spec_cli policy-generate --name mission.policies -o policies.json
+    python -m spark.kit.spec_cli policy-validate policies.json
+    python -m spark.kit.spec_cli policy-diff old.json new.json
