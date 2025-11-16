@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import defaultdict
-from typing import Any, Callable
+from typing import Any, Callable, List, Optional
 
 from spark.nodes.channels import BaseChannel, ChannelClosed, ChannelMessage, InMemoryChannel
 
@@ -62,14 +62,25 @@ class GraphEventBus:
     Topics are string keys. Special topic "*" receives all events.
     """
 
-    def __init__(self, *, channel_factory: ChannelFactory | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        channel_factory: ChannelFactory | None = None,
+        replay_buffer_size: int = 0,
+    ) -> None:
         self._channel_factory = channel_factory or (lambda topic: InMemoryChannel(name=f'event:{topic}'))
         self._subscriptions: dict[str, list[BaseChannel]] = defaultdict(list)
         self._lock = asyncio.Lock()
+        self._replay_buffer_size = replay_buffer_size
+        self._replay_buffer: list[ChannelMessage] = []
 
     async def publish(self, topic: str, payload: Any, *, metadata: dict[str, Any] | None = None) -> None:
         """Publish an event to the specified topic."""
         message = ChannelMessage(payload=payload, metadata={'topic': topic, **(metadata or {})})
+        if self._replay_buffer_size > 0:
+            self._replay_buffer.append(message.clone())
+            if len(self._replay_buffer) > self._replay_buffer_size:
+                self._replay_buffer = self._replay_buffer[-self._replay_buffer_size :]
         async with self._lock:
             targets = list(self._subscriptions.get(topic, []))
             wildcards = list(self._subscriptions.get('*', []))
@@ -92,7 +103,18 @@ class GraphEventBus:
         channel = self._channel_factory(topic)
         async with self._lock:
             self._subscriptions[topic].append(channel)
+            if self._replay_buffer_size > 0 and topic in ('*',):
+                for message in self._replay_buffer:
+                    await channel.send(message.clone())
         return EventSubscription(topic, channel, self._remove_subscription)
+
+    async def replay(self, topic: str = '*') -> List[ChannelMessage]:
+        """Return buffered events for inspection."""
+        if self._replay_buffer_size <= 0:
+            return []
+        if topic == '*':
+            return [msg.clone() for msg in self._replay_buffer]
+        return [msg.clone() for msg in self._replay_buffer if msg.metadata.get('topic') == topic]
 
     def _remove_subscription(self, topic: str, channel: BaseChannel) -> None:
         channels = self._subscriptions.get(topic)
