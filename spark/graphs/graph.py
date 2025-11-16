@@ -30,6 +30,7 @@ from spark.nodes.types import ExecutionContext, NodeMessage
 from spark.nodes.channels import ChannelMessage, ForwardingChannel, BaseChannel
 from spark.graphs.event_bus import GraphEventBus
 from spark.graphs.graph_state import GraphState
+from spark.graphs.workspace import Workspace
 from spark.graphs.checkpoint import GraphCheckpoint, GraphCheckpointConfig
 from spark.graphs.hooks import GraphLifecycleContext, GraphLifecycleEvent, HookFn, ensure_coroutine
 
@@ -74,6 +75,7 @@ class Graph(BaseGraph):
         lifecycle_hooks = kwargs.pop('lifecycle_hooks', None)
         state_backend = kwargs.pop('state_backend', None)
         mission_control = kwargs.pop('mission_control', None)
+        workspace: Workspace | None = kwargs.pop('workspace', None)
         state_schema: type[BaseModel] | BaseModel | None = kwargs.pop('state_schema', None)
         checkpoint_config: GraphCheckpointConfig | None = kwargs.pop('checkpoint_config', None)
         super().__init__(*edges, **kwargs)
@@ -118,6 +120,7 @@ class Graph(BaseGraph):
         self._event_tasks: list[asyncio.Task] = []
         self._event_subscriptions: list[Any] = []
         self._mailbox_manager: MailboxPersistenceManager | None = None
+        self.workspace: Workspace | None = workspace
 
     def register_hook(self, event: GraphLifecycleEvent | str, hook: HookFn) -> None:
         """Register a lifecycle hook handler for the graph runtime."""
@@ -290,6 +293,10 @@ class Graph(BaseGraph):
             self._channels_configured = False
 
         await self.state.initialize()
+        if self.workspace:
+            await self.workspace.ensure_directories()
+            if self._state_enabled:
+                await self.state.set('workspace', self.workspace.describe())
         if is_long_lived_task:
             await self._enable_mailbox_persistence()
         self._prepare_runtime()

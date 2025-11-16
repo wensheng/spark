@@ -35,6 +35,7 @@ from spark.graphs.shared_memory import (
     AccessVisibility,
 )
 from spark.graphs.artifacts import ArtifactRecord, ArtifactStatus
+from spark.graphs.workspace import Workspace, WorkspaceMount, WorkspaceManager, WorkspaceSecrets
 from spark.graphs.mailbox import MailboxPersistenceManager
 
 __all__ = [
@@ -75,5 +76,9 @@ __all__ = [
     "AccessVisibility",
     "ArtifactRecord",
     "ArtifactStatus",
+    "Workspace",
+    "WorkspaceMount",
+    "WorkspaceManager",
+    "WorkspaceSecrets",
     "MailboxPersistenceManager",
 ]
