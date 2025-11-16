@@ -53,3 +53,7 @@ Execute mission specs against simulated tools (static responses or custom handle
     python -m spark.kit.spec_cli simulation-run mission.json --format json
 
 Provide alternate overrides via `--simulation-config overrides.json` or add inputs with `--inputs payload.json`.
+
+Compare two simulation transcripts for drift:
+
+    python -m spark.kit.spec_cli simulation-diff baseline.json candidate.json

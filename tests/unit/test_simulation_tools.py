@@ -104,3 +104,28 @@ def test_simulation_cli_runs(tmp_path, capsys):
     assert rc == 0
     payload = json.loads(captured.out)
     assert 'mock_tool' in payload['tool_records']
+
+
+def test_simulation_diff_cli(tmp_path, capsys):
+    baseline_payload = {
+        'outputs': {'status': 'ok'},
+        'policy_events': [{'event': 'allow'}],
+        'tool_records': {'mock_tool': [{'outputs': {'status': 'ok'}}]},
+    }
+    candidate_payload = {
+        'outputs': {'status': 'changed'},
+        'policy_events': [{'event': 'allow'}, {'event': 'deny'}],
+        'tool_records': {'mock_tool': []},
+    }
+    baseline_path = tmp_path / 'baseline.json'
+    candidate_path = tmp_path / 'candidate.json'
+    baseline_path.write_text(json.dumps(baseline_payload), encoding='utf-8')
+    candidate_path.write_text(json.dumps(candidate_payload), encoding='utf-8')
+    args = Namespace(baseline=str(baseline_path), candidate=str(candidate_path), format='json')
+    rc = spec_cli.cmd_simulation_diff(args)
+    captured = capsys.readouterr()
+    assert rc == 0
+    summary = json.loads(captured.out)
+    assert summary['outputs_equal'] is False
+    assert summary['policy_events']['delta'] == 1
+    assert 'mock_tool' in summary['tool_invocations']['counts']

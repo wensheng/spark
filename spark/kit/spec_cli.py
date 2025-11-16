@@ -1141,6 +1141,88 @@ def cmd_simulation_run(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_simulation_diff(args: argparse.Namespace) -> int:
+    """Diff two simulation run artifacts."""
+
+    try:
+        with open(args.baseline, 'r', encoding='utf-8') as f:
+            baseline = json.load(f)
+        with open(args.candidate, 'r', encoding='utf-8') as f:
+            candidate = json.load(f)
+    except Exception as exc:
+        print(f"Failed to load simulation outputs: {exc}", file=sys.stderr)
+        return 2
+
+    summary = _diff_simulation_payloads(baseline, candidate)
+    if args.format == 'json':
+        print(json.dumps(summary, ensure_ascii=False, indent=2))
+        return 0
+
+    lines: list[str] = []
+    lines.append("Outputs match." if summary['outputs_equal'] else "Outputs differ.")
+    lines.append(
+        f"Policy events: baseline={summary['policy_events']['baseline']} "
+        f"candidate={summary['policy_events']['candidate']} delta={summary['policy_events']['delta']}"
+    )
+    if summary['tool_invocations']['counts']:
+        lines.append("Tool invocation deltas:")
+        for name, counts in summary['tool_invocations']['counts'].items():
+            lines.append(
+                f"  - {name}: baseline={counts['baseline']} "
+                f"candidate={counts['candidate']} delta={counts['delta']}"
+            )
+    else:
+        lines.append("Tool invocation deltas: none")
+    if summary['tool_invocations']['added']:
+        lines.append(f"Added tools: {', '.join(summary['tool_invocations']['added'])}")
+    if summary['tool_invocations']['removed']:
+        lines.append(f"Removed tools: {', '.join(summary['tool_invocations']['removed'])}")
+    print('\n'.join(lines))
+    return 0
+
+
+def _diff_simulation_payloads(
+    baseline: dict[str, Any],
+    candidate: dict[str, Any],
+) -> dict[str, Any]:
+    outputs_equal = baseline.get('outputs') == candidate.get('outputs')
+    baseline_policy = baseline.get('policy_events') or []
+    candidate_policy = candidate.get('policy_events') or []
+    policy_summary = {
+        'baseline': len(baseline_policy),
+        'candidate': len(candidate_policy),
+        'delta': len(candidate_policy) - len(baseline_policy),
+    }
+
+    baseline_tools = baseline.get('tool_records') or {}
+    candidate_tools = candidate.get('tool_records') or {}
+    tool_counts: dict[str, dict[str, int]] = {}
+    all_tools = set(baseline_tools) | set(candidate_tools)
+    for name in sorted(all_tools):
+        base_len = len(baseline_tools.get(name, []))
+        cand_len = len(candidate_tools.get(name, []))
+        if base_len != cand_len:
+            tool_counts[name] = {'baseline': base_len, 'candidate': cand_len, 'delta': cand_len - base_len}
+    added = sorted(set(candidate_tools) - set(baseline_tools))
+    removed = sorted(set(baseline_tools) - set(candidate_tools))
+
+    summary: dict[str, Any] = {
+        'outputs_equal': outputs_equal,
+        'policy_events': policy_summary,
+        'tool_invocations': {
+            'counts': tool_counts,
+            'added': added,
+            'removed': removed,
+        },
+    }
+    if not outputs_equal:
+        summary['output_diff'] = {
+            'baseline': baseline.get('outputs'),
+            'candidate': candidate.get('outputs'),
+        }
+    return summary
+
+
 def cmd_schema_diff(args: argparse.Namespace) -> int:
     """Compare two MissionStateModel definitions."""
 
@@ -1434,6 +1516,12 @@ def build_parser() -> argparse.ArgumentParser:
     psim.add_argument('--import-policy', choices=['safe', 'allow_all'], default='safe', help='Import policy for loader')
     psim.add_argument('--format', choices=['text', 'json'], default='text', help='Output format')
     psim.set_defaults(func=cmd_simulation_run)
+
+    psd = sub.add_parser('simulation-diff', help='Diff two simulation output JSON artifacts')
+    psd.add_argument('baseline', help='Baseline simulation JSON')
+    psd.add_argument('candidate', help='Candidate simulation JSON')
+    psd.add_argument('--format', choices=['text', 'json'], default='text', help='Output format')
+    psd.set_defaults(func=cmd_simulation_diff)
 
     return p
 
