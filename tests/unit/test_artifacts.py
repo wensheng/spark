@@ -1,7 +1,15 @@
 """Tests for artifact schema."""
 
-from spark.graphs.artifacts import ArtifactRecord, ArtifactStatus
-from spark.graphs.shared_memory import MemoryReference, MemoryAccessPolicy, AccessVisibility
+import pytest
+
+from spark.graphs import GraphState
+from spark.graphs.artifacts import ArtifactRecord, ArtifactStatus, ArtifactManager
+from spark.graphs.shared_memory import (
+    MemoryReference,
+    MemoryAccessPolicy,
+    AccessVisibility,
+    MemoryPolicyViolation,
+)
 
 
 def test_artifact_record_defaults():
@@ -31,3 +39,58 @@ def test_artifact_record_with_metadata():
     assert record.status == ArtifactStatus.FINAL
     assert record.access_policy.visibility == AccessVisibility.PUBLIC
     assert record.references[0].entity_id == 'repo:spark'
+
+
+@pytest.mark.asyncio
+async def test_artifact_manager_register_and_list():
+    state = GraphState(initial_state={})
+    await state.initialize()
+    manager = ArtifactManager(state)
+
+    record = await manager.register_artifact(
+        artifact_type='diff',
+        name='PR Diff',
+        node_id='node_a',
+        references=[MemoryReference(entity_id='repo:spark')],
+        tags=['diff'],
+    )
+
+    artifacts = await manager.list_artifacts(kinds=['diff'])
+    assert len(artifacts) == 1
+    assert artifacts[0].id == record.id
+
+
+@pytest.mark.asyncio
+async def test_artifact_manager_enforces_access():
+    state = GraphState(initial_state={})
+    await state.initialize()
+
+    def enforcer(record, context, action):
+        if action == 'read':
+            return record.access_policy.visibility is AccessVisibility.PUBLIC
+        return context.agent_id == record.node_id
+
+    manager = ArtifactManager(state, policy_enforcer=enforcer)
+
+    record = await manager.register_artifact(
+        artifact_type='log',
+        name='Sensitive Log',
+        node_id='node1',
+        access_context={'agent_id': 'node1'},
+    )
+
+    with pytest.raises(MemoryPolicyViolation):
+        await manager.register_artifact(
+            artifact_type='log',
+            name='Unauthorized',
+            node_id='node2',
+            access_context={'agent_id': 'nodeA'},
+        )
+
+    filtered = await manager.list_artifacts(enforce_access=True, access_context={'agent_id': 'node2'})
+    assert filtered == []
+
+    allowed = await manager.list_artifacts(enforce_access=True, access_context={'agent_id': 'any'})
+    assert allowed == []
+
+    await manager.delete_artifact(record.id, access_context={'agent_id': 'node1'})
