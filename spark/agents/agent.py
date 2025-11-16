@@ -39,8 +39,8 @@ from spark.agents.policies import (
 )
 from spark.agents.types import AgentState, ToolTrace, default_agent_state
 from spark.tools.types import BaseTool, ToolChoice, ToolUse
+from spark.governance.approval import ApprovalGateManager, ApprovalPendingError
 from spark.governance.policy import (
-    PolicyApprovalRequired,
     PolicyDecision,
     PolicyEffect,
     PolicyEngine,
@@ -488,19 +488,7 @@ class Agent(Node):
                 context=context,
             )
             decision = self.policy_engine.evaluate(request)
-            await self._record_policy_decision(decision, request, context)
-            if decision.effect == PolicyEffect.DENY:
-                raise PolicyViolationError(
-                    f"Tool '{tool_name}' blocked by policy",
-                    decision=decision,
-                    request=request,
-                )
-            if decision.effect == PolicyEffect.REQUIRE_APPROVAL:
-                raise PolicyApprovalRequired(
-                    f"Tool '{tool_name}' requires approval by policy",
-                    decision=decision,
-                    request=request,
-                )
+            await self._handle_tool_policy_decision(decision, request, context)
 
     def _build_tool_policy_request(
         self,
@@ -546,6 +534,49 @@ class Agent(Node):
             resource=f"tool://{tool_name}",
             context=policy_context,
         )
+
+    async def _handle_tool_policy_decision(
+        self,
+        decision: PolicyDecision,
+        request: PolicyRequest,
+        context: ExecutionContext[AgentState],
+    ) -> None:
+        """Record decision and raise if policy blocked or requires approval."""
+
+        await self._record_policy_decision(decision, request, context)
+        if decision.effect == PolicyEffect.ALLOW:
+            return
+        if decision.effect == PolicyEffect.DENY:
+            raise PolicyViolationError(
+                f"Tool '{request.resource}' blocked by policy",
+                decision=decision,
+                request=request,
+            )
+        if decision.effect == PolicyEffect.REQUIRE_APPROVAL:
+            approval = await self._create_tool_approval_request(decision, request, context)
+            raise ApprovalPendingError(approval)
+
+    async def _create_tool_approval_request(
+        self,
+        decision: PolicyDecision,
+        request: PolicyRequest,
+        context: ExecutionContext[AgentState],
+    ):
+        """Persist an approval request tied to the current execution context."""
+
+        manager = ApprovalGateManager(getattr(context, 'graph_state', None))
+        approval = await manager.submit_request(
+            action=request.action,
+            resource=request.resource,
+            subject=request.subject.model_dump(),
+            reason=decision.reason or 'Tool execution requires approval',
+            metadata={
+                'rule': decision.rule,
+                'policy_metadata': dict(decision.metadata),
+                'context': dict(request.context),
+            },
+        )
+        return approval
 
     async def _record_policy_decision(
         self,
@@ -846,8 +877,8 @@ class Agent(Node):
             result = self.handle_model_error(exc)
             self._state['last_result'] = result
             return result
-        except (HumanApprovalRequired, AgentStoppedError) as exc:
-            logger.warning('Agent paused for human input: %s', exc)
+        except (HumanApprovalRequired, AgentStoppedError, ApprovalPendingError) as exc:
+            logger.warning('Agent paused awaiting approval: %s', exc)
             result = self.handle_model_error(exc)
             self._state['last_result'] = result
             return result
@@ -1072,6 +1103,9 @@ class Agent(Node):
             error_content['category'] = 'budget'
         elif isinstance(exc, (HumanApprovalRequired, AgentStoppedError)):
             error_content['category'] = 'human_policy'
+        elif isinstance(exc, ApprovalPendingError):
+            error_content['category'] = 'governance'
+            error_content['approval_id'] = exc.approval.approval_id
         else:
             error_content['category'] = 'unknown'
 

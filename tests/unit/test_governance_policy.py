@@ -8,6 +8,7 @@ import pytest
 
 from spark.agents.agent import Agent
 from spark.agents.config import AgentConfig
+from spark.governance.approval import ApprovalPendingError, ApprovalStatus
 from spark.governance.policy import (
     PolicyConstraint,
     PolicyEffect,
@@ -19,6 +20,7 @@ from spark.governance.policy import (
     PolicyViolationError,
 )
 from spark.graphs.graph import Graph
+from spark.graphs.graph_state import GraphState
 from spark.models.echo import EchoModel
 from spark.nodes.nodes import Node
 from spark.nodes.types import ExecutionContext, NodeMessage
@@ -77,6 +79,30 @@ async def test_graph_blocks_nodes_via_policy():
     assert any(event['decision'] == 'deny' and event['action'] == 'node:execute' for event in events)
 
 
+@pytest.mark.asyncio
+async def test_graph_policy_requires_approval_records_request():
+    """Graphs should surface approval requests and persist them."""
+    rule = PolicyRule(
+        name='pause_sensitive',
+        effect=PolicyEffect.REQUIRE_APPROVAL,
+        actions=['node:execute'],
+        resources=['graph://*/nodes/*'],
+        constraints=[PolicyConstraint(key='node.type', equals='SensitiveNode')],
+    )
+    policy = PolicySet(default_effect=PolicyEffect.ALLOW, rules=[rule])
+    graph = Graph(start=SensitiveNode(), policy_set=policy)
+
+    with pytest.raises(ApprovalPendingError) as excinfo:
+        await graph.run({'value': 1})
+
+    approval = excinfo.value.approval
+    assert approval.status is ApprovalStatus.PENDING
+    stored = await graph.state.get('approval_requests', [])
+    assert len(stored) == 1
+    assert stored[0]['approval_id'] == approval.approval_id
+    assert stored[0]['status'] == ApprovalStatus.PENDING.value
+
+
 @tool
 def sample_region_tool(region: str) -> str:
     """Echo the selected region."""
@@ -112,3 +138,38 @@ async def test_agent_tool_policy_blocks_execution():
 
     with pytest.raises(PolicyViolationError):
         await agent._execute_tool_calls([tool_call], context)
+
+
+@pytest.mark.asyncio
+async def test_agent_tool_policy_requires_approval():
+    """Agents should log approval requests when policy asks for review."""
+    rule = PolicyRule(
+        name='require_review',
+        effect=PolicyEffect.REQUIRE_APPROVAL,
+        actions=['agent:tool_execute'],
+        resources=['tool://sample_region_tool'],
+    )
+    config = AgentConfig(
+        model=EchoModel(),
+        tools=[sample_region_tool],
+        policy_set=PolicySet(default_effect=PolicyEffect.ALLOW, rules=[rule]),
+    )
+    agent = Agent(config=config)
+    context = agent._prepare_context(NodeMessage(content={}))
+    context.graph_state = GraphState()
+    await context.graph_state.initialize()
+
+    tool_call = {
+        'id': 'call-approval',
+        'function': {
+            'name': 'sample_region_tool',
+            'arguments': json.dumps({'region': 'us-east-1'}),
+        },
+    }
+
+    with pytest.raises(ApprovalPendingError):
+        await agent._execute_tool_calls([tool_call], context)
+
+    requests = await context.graph_state.get('approval_requests', [])
+    assert len(requests) == 1
+    assert requests[0]['status'] == ApprovalStatus.PENDING.value

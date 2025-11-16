@@ -35,8 +35,8 @@ from spark.graphs.graph_state import GraphState
 from spark.graphs.workspace import Workspace
 from spark.graphs.checkpoint import GraphCheckpoint, GraphCheckpointConfig
 from spark.graphs.hooks import GraphLifecycleContext, GraphLifecycleEvent, HookFn, ensure_coroutine
+from spark.governance.approval import ApprovalGateManager, ApprovalPendingError
 from spark.governance.policy import (
-    PolicyApprovalRequired,
     PolicyDecision,
     PolicyEffect,
     PolicyEngine,
@@ -89,6 +89,7 @@ class Graph(BaseGraph):
         policy_set = kwargs.pop('policy_set', None)
         policy_rules = kwargs.pop('policy_rules', None)
         policy_state_key = kwargs.pop('policy_state_key', 'policy_events')
+        approval_state_key = kwargs.pop('approval_state_key', 'approval_requests')
         lifecycle_hooks = kwargs.pop('lifecycle_hooks', None)
         state_backend = kwargs.pop('state_backend', None)
         mission_control = kwargs.pop('mission_control', None)
@@ -149,6 +150,8 @@ class Graph(BaseGraph):
         self.artifacts: ArtifactManager | None = artifact_manager or (
             ArtifactManager(self.state, policy=artifact_policy) if artifact_policy else None
         )
+        approval_state = self.state if self._state_enabled else None
+        self._approval_manager = ApprovalGateManager(approval_state, storage_key=approval_state_key)
         self._attach_policy_engine_to_nodes()
 
     def register_hook(self, event: GraphLifecycleEvent | str, hook: HookFn) -> None:
@@ -719,19 +722,7 @@ class Graph(BaseGraph):
             context=context,
         )
         decision = self._policy_engine.evaluate(request)
-        await self._record_policy_decision(decision, request)
-        if decision.effect == PolicyEffect.DENY:
-            raise PolicyViolationError(
-                f"Task {task.task_id or ''} blocked by governance policy",
-                decision=decision,
-                request=request,
-            )
-        if decision.effect == PolicyEffect.REQUIRE_APPROVAL:
-            raise PolicyApprovalRequired(
-                f"Task {task.task_id or ''} requires approval per governance policy",
-                decision=decision,
-                request=request,
-            )
+        await self._handle_policy_decision(decision, request)
 
     async def _enforce_policy_for_node(self, node: BaseNode, task: Task) -> None:
         """Evaluate node-level policies before executing."""
@@ -758,19 +749,7 @@ class Graph(BaseGraph):
             context=context,
         )
         decision = self._policy_engine.evaluate(request)
-        await self._record_policy_decision(decision, request)
-        if decision.effect == PolicyEffect.DENY:
-            raise PolicyViolationError(
-                f"Node {node.id} blocked by governance policy",
-                decision=decision,
-                request=request,
-            )
-        if decision.effect == PolicyEffect.REQUIRE_APPROVAL:
-            raise PolicyApprovalRequired(
-                f"Node {node.id} requires approval per governance policy",
-                decision=decision,
-                request=request,
-            )
+        await self._handle_policy_decision(decision, request)
 
     def _build_task_subject(self, task: Task) -> PolicySubject:
         """Construct a policy subject representing the current task owner."""
@@ -827,6 +806,39 @@ class Graph(BaseGraph):
             }
         )
         await self.state.set(self._policy_state_key, timeline)
+
+    async def _handle_policy_decision(self, decision: PolicyDecision, request: PolicyRequest) -> None:
+        """Record decision and raise when policies block or require approvals."""
+
+        await self._record_policy_decision(decision, request)
+        if decision.effect == PolicyEffect.ALLOW:
+            return
+        if decision.effect == PolicyEffect.DENY:
+            raise PolicyViolationError(
+                f"Policy denied '{request.action}' on '{request.resource}'",
+                decision=decision,
+                request=request,
+            )
+        if decision.effect == PolicyEffect.REQUIRE_APPROVAL:
+            approval = await self._create_approval_request(decision, request)
+            raise ApprovalPendingError(approval)
+
+    async def _create_approval_request(self, decision: PolicyDecision, request: PolicyRequest):
+        """Create an approval request entry for governance workflows."""
+
+        manager = self._approval_manager or ApprovalGateManager(None)
+        approval = await manager.submit_request(
+            action=request.action,
+            resource=request.resource,
+            subject=request.subject.model_dump(),
+            reason=decision.reason or 'Approval required by policy',
+            metadata={
+                'rule': decision.rule,
+                'policy_metadata': dict(decision.metadata),
+                'context': dict(request.context),
+            },
+        )
+        return approval
 
     async def _monitor_idle_and_shutdown(self) -> None:
         """Monitor nodes for idle state and automatically shutdown when all nodes are idle.
