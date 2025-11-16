@@ -13,46 +13,53 @@ Commands:
  - introspect: Inspect Python graph and show detailed info
  - merge: Merge multiple specs into one
  - extract: Extract subgraph from a spec
+ - approval-list: List governance approvals stored in GraphState
+ - approval-resolve: Approve or reject a pending approval request
 """
 
 from __future__ import annotations
 
 import argparse
+import asyncio
 import importlib
 import json
 import os
 import sys
 from dataclasses import asdict
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Type
 
+from spark.governance.approval import ApprovalGateManager, ApprovalStatus
+from spark.graphs.artifacts import ArtifactPolicy
 from spark.graphs.base import BaseGraph
+from spark.graphs.graph_state import GraphState
 from spark.graphs.mission_control import MissionPlan
+from spark.graphs.state_backend import JSONFileStateBackend, SQLiteStateBackend
 from spark.graphs.state_schema import MissionStateModel
+from spark.kit.analysis import GraphAnalyzer
+from spark.kit.codegen import CodeGenerator, generate
+from spark.kit.deployment import MissionDeployer, MissionPackager
+from spark.kit.diff import SpecDiffer, diff_mission_specs
 from spark.nodes.serde import (
     graph_to_spec,
-    save_graph_json,
     load_graph_spec,
-    save_mission_spec,
     load_mission_spec,
+    save_graph_json,
+    save_mission_spec,
 )
-from spark.kit.codegen import generate, CodeGenerator
-from spark.kit.analysis import GraphAnalyzer
-from spark.kit.diff import SpecDiffer, diff_mission_specs
-from spark.kit.deployment import MissionPackager, MissionDeployer
 from spark.nodes.spec import (
-    GraphSpec,
-    NodeSpec,
     EdgeSpec,
-    MissionSpec,
+    GraphSpec,
+    MissionDeploymentSpec,
     MissionPlanSpec,
     MissionPlanStepSpec,
-    MissionStrategyBindingSpec,
+    MissionSpec,
     MissionStateSchemaSpec,
+    MissionStrategyBindingSpec,
+    NodeSpec,
     ReasoningStrategySpec,
-    MissionDeploymentSpec,
 )
-from spark.graphs.artifacts import ArtifactPolicy
 
 
 def _import_attr(target: str) -> Any:
@@ -116,6 +123,38 @@ def _resolve_artifact_policy(value: str | None) -> dict[str, Any] | None:
         if isinstance(target, dict):
             return target
         raise TypeError(f"Artifact policy target '{value}' must return dict or ArtifactPolicy")
+
+
+# =============================================================================
+# Governance helpers
+# =============================================================================
+
+
+def _build_state_backend(path: str, backend: str, table: str | None = None):
+    """Instantiate a GraphState backend from CLI options."""
+
+    if backend == 'file':
+        return JSONFileStateBackend(path)
+    if backend == 'sqlite':
+        return SQLiteStateBackend(path, table_name=table or 'graph_state')
+    raise ValueError(f"Unsupported backend '{backend}'. Use 'file' or 'sqlite'.")
+
+
+async def _load_graph_state_for_cli(args: argparse.Namespace) -> GraphState:
+    """Initialize GraphState against a persisted backend for CLI ops."""
+
+    backend = _build_state_backend(args.state, getattr(args, 'backend', 'file'), getattr(args, 'table', None))
+    graph_state = GraphState(backend=backend)
+    await graph_state.initialize()
+    return graph_state
+
+
+async def _load_approval_manager(args: argparse.Namespace) -> ApprovalGateManager:
+    """Return an ApprovalGateManager bound to CLI-provided state."""
+
+    state = await _load_graph_state_for_cli(args)
+    storage_key = getattr(args, 'storage_key', 'approval_requests')
+    return ApprovalGateManager(state, storage_key=storage_key)
 
 
 # ==============================================================================
@@ -832,6 +871,95 @@ def cmd_plan_render(args: argparse.Namespace) -> int:
     return 0
 
 
+def _format_timestamp(epoch: float | None) -> str:
+    if not epoch:
+        return '—'
+    return datetime.fromtimestamp(epoch).isoformat(timespec='seconds')
+
+
+def cmd_approval_list(args: argparse.Namespace) -> int:
+    """List approval requests stored in a GraphState backend."""
+
+    async def _run() -> int:
+        manager = await _load_approval_manager(args)
+        status_filter = getattr(args, 'status', 'pending')
+        if status_filter == 'pending':
+            approvals = await manager.pending_requests()
+        else:
+            approvals = await manager.list_requests()
+            if status_filter != 'all':
+                status_enum = ApprovalStatus(status_filter)
+                approvals = [req for req in approvals if req.status == status_enum]
+        approvals.sort(key=lambda req: req.created_at, reverse=True)
+        limit = getattr(args, 'limit', None)
+        if limit:
+            approvals = approvals[:limit]
+        output_format = getattr(args, 'format', 'table')
+        if output_format == 'json':
+            payload = [req.model_dump() for req in approvals]
+            print(json.dumps(payload, ensure_ascii=False, indent=2))
+            return 0
+        if not approvals:
+            print('No approval requests found.')
+            return 0
+        for req in approvals:
+            created = _format_timestamp(req.created_at)
+            decided = _format_timestamp(req.decided_at)
+            print(f"[{req.status.value:^8}] {req.approval_id}  {req.action} -> {req.resource}")
+            print(f"  created: {created}  decided: {decided}")
+            if req.reason:
+                print(f"  reason: {req.reason}")
+            if req.decided_by:
+                print(f"  reviewer: {req.decided_by}")
+            if req.notes:
+                print(f"  notes: {req.notes}")
+            if req.metadata:
+                metadata = json.dumps(req.metadata, ensure_ascii=False)
+                print(f"  metadata: {metadata}")
+            print()
+        return 0
+
+    try:
+        return asyncio.run(_run())
+    except Exception as exc:
+        print(f"Error listing approvals: {exc}", file=sys.stderr)
+        return 2
+
+
+def cmd_approval_resolve(args: argparse.Namespace) -> int:
+    """Mark an approval request as approved or rejected."""
+
+    async def _run() -> int:
+        manager = await _load_approval_manager(args)
+        status = ApprovalStatus(args.status)
+        resolved = await manager.resolve_request(
+            args.approval_id,
+            status=status,
+            reviewer=getattr(args, 'reviewer', None),
+            notes=getattr(args, 'notes', None),
+        )
+        output_format = getattr(args, 'format', 'text')
+        if output_format == 'json':
+            print(json.dumps(resolved.model_dump(), ensure_ascii=False, indent=2))
+            return 0
+        decided = _format_timestamp(resolved.decided_at)
+        print(f"Approval {resolved.approval_id} marked as {resolved.status.value} at {decided}")
+        if resolved.decided_by:
+            print(f"Reviewer: {resolved.decided_by}")
+        if resolved.notes:
+            print(f"Notes: {resolved.notes}")
+        return 0
+
+    try:
+        return asyncio.run(_run())
+    except KeyError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    except Exception as exc:
+        print(f"Error resolving approval: {exc}", file=sys.stderr)
+        return 2
+
+
 def cmd_schema_diff(args: argparse.Namespace) -> int:
     """Compare two MissionStateModel definitions."""
 
@@ -1069,6 +1197,30 @@ def build_parser() -> argparse.ArgumentParser:
     ppr = sub.add_parser('plan-render', help='Render a mission plan snapshot to text')
     ppr.add_argument('file', help='Path to plan snapshot JSON file')
     ppr.set_defaults(func=cmd_plan_render)
+
+    # Approval commands
+    pal = sub.add_parser('approval-list', help='List approval requests from stored GraphState')
+    pal.add_argument('--state', required=True, help='Path to GraphState backend (JSON file or SQLite DB)')
+    pal.add_argument('--backend', choices=['file', 'sqlite'], default='file', help='State backend type')
+    pal.add_argument('--table', default='graph_state', help='SQLite table name (when backend=sqlite)')
+    pal.add_argument('--storage-key', default='approval_requests', help='State key storing approval entries')
+    pal.add_argument('--status', choices=['all', 'pending', 'approved', 'rejected'], default='pending',
+                     help='Filter approvals by status')
+    pal.add_argument('--limit', type=int, help='Limit the number of approvals displayed')
+    pal.add_argument('--format', choices=['table', 'json'], default='table', help='Output format')
+    pal.set_defaults(func=cmd_approval_list)
+
+    par = sub.add_parser('approval-resolve', help='Approve or reject a pending approval request')
+    par.add_argument('approval_id', help='Approval identifier to update')
+    par.add_argument('--state', required=True, help='Path to GraphState backend (JSON file or SQLite DB)')
+    par.add_argument('--backend', choices=['file', 'sqlite'], default='file', help='State backend type')
+    par.add_argument('--table', default='graph_state', help='SQLite table name (when backend=sqlite)')
+    par.add_argument('--storage-key', default='approval_requests', help='State key storing approval entries')
+    par.add_argument('--status', choices=['approved', 'rejected'], required=True, help='New approval status')
+    par.add_argument('--reviewer', help='Reviewer identifier recorded with the decision')
+    par.add_argument('--notes', help='Optional notes recorded with the decision')
+    par.add_argument('--format', choices=['text', 'json'], default='text', help='Output format')
+    par.set_defaults(func=cmd_approval_resolve)
 
     return p
 
