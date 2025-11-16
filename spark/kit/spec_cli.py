@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import Any, Type
 
 from spark.governance.approval import ApprovalGateManager, ApprovalStatus
+from spark.governance.policy import PolicyEffect, PolicyRule, PolicySet
 from spark.graphs.artifacts import ArtifactPolicy
 from spark.graphs.base import BaseGraph
 from spark.graphs.graph_state import GraphState
@@ -155,6 +156,12 @@ async def _load_approval_manager(args: argparse.Namespace) -> ApprovalGateManage
     state = await _load_graph_state_for_cli(args)
     storage_key = getattr(args, 'storage_key', 'approval_requests')
     return ApprovalGateManager(state, storage_key=storage_key)
+
+
+def _load_policy_set(path: str) -> PolicySet:
+    with open(path, 'r', encoding='utf-8') as f:
+        payload = json.load(f)
+    return PolicySet.model_validate(payload)
 
 
 # ==============================================================================
@@ -960,6 +967,109 @@ def cmd_approval_resolve(args: argparse.Namespace) -> int:
         return 2
 
 
+def cmd_policy_generate(args: argparse.Namespace) -> int:
+    """Generate a policy set skeleton."""
+
+    default_effect = PolicyEffect(args.default_effect)
+    policy = PolicySet(
+        name=args.name,
+        description=args.description or f"Policy set for {args.name}",
+        default_effect=default_effect,
+    )
+    if not args.empty:
+        example_rule = PolicyRule(
+            name=args.rule_name,
+            description=args.rule_description,
+            effect=PolicyEffect(args.rule_effect),
+            actions=[args.rule_action],
+            resources=[args.rule_resource],
+            constraints=[],
+        )
+        policy.rules.append(example_rule)
+    payload = json.dumps(policy.model_dump(), ensure_ascii=False, indent=2)
+    if args.output:
+        Path(args.output).write_text(payload, encoding='utf-8')
+        print(f"Wrote policy set to {args.output}")
+    else:
+        print(payload)
+    return 0
+
+
+def cmd_policy_validate(args: argparse.Namespace) -> int:
+    """Validate a policy JSON file."""
+
+    try:
+        policy = _load_policy_set(args.file)
+    except Exception as exc:
+        print(f"Invalid policy file: {exc}", file=sys.stderr)
+        return 2
+    print(f"Valid policy set '{policy.name}' with {len(policy.rules)} rule(s).")
+    return 0
+
+
+def cmd_policy_diff(args: argparse.Namespace) -> int:
+    """Diff two policy sets."""
+
+    try:
+        old_policy = _load_policy_set(args.old)
+        new_policy = _load_policy_set(args.new)
+    except Exception as exc:
+        print(f"Failed to load policy files: {exc}", file=sys.stderr)
+        return 2
+
+    summary = _diff_policy_sets(old_policy, new_policy)
+    if args.format == 'json':
+        print(json.dumps(summary, ensure_ascii=False, indent=2))
+        return 0
+
+    lines: list[str] = []
+    if summary['default_effect_changed']:
+        lines.append(
+            f"- Default effect changed: {summary['default_effect_changed']['old']} -> {summary['default_effect_changed']['new']}"
+        )
+    if summary['added_rules']:
+        lines.append(f"- Added rules: {', '.join(sorted(summary['added_rules']))}")
+    if summary['removed_rules']:
+        lines.append(f"- Removed rules: {', '.join(sorted(summary['removed_rules']))}")
+    if summary['updated_rules']:
+        lines.append("- Updated rules:")
+        for name, diff in summary['updated_rules'].items():
+            lines.append(f"  * {name}")
+            for field, change in diff.items():
+                lines.append(f"    - {field}: {change['old']} -> {change['new']}")
+    if not lines:
+        lines.append("Policies are identical.")
+    print('\n'.join(lines))
+    return 0
+
+
+def _diff_policy_sets(old: PolicySet, new: PolicySet) -> dict[str, Any]:
+    old_rules = {rule.name: rule for rule in old.rules}
+    new_rules = {rule.name: rule for rule in new.rules}
+    added = sorted(set(new_rules) - set(old_rules))
+    removed = sorted(set(old_rules) - set(new_rules))
+    updated: dict[str, dict[str, dict[str, Any]]] = {}
+    common = set(old_rules) & set(new_rules)
+    for name in common:
+        old_dump = old_rules[name].model_dump(mode='json')
+        new_dump = new_rules[name].model_dump(mode='json')
+        diff: dict[str, dict[str, Any]] = {}
+        for key in sorted(set(old_dump) | set(new_dump)):
+            if old_dump.get(key) != new_dump.get(key):
+                diff[key] = {'old': old_dump.get(key), 'new': new_dump.get(key)}
+        if diff:
+            updated[name] = diff
+    default_diff = None
+    if old.default_effect != new.default_effect:
+        default_diff = {'old': old.default_effect.value, 'new': new.default_effect.value}
+    return {
+        'default_effect_changed': default_diff,
+        'added_rules': added,
+        'removed_rules': removed,
+        'updated_rules': updated,
+    }
+
+
 def cmd_schema_diff(args: argparse.Namespace) -> int:
     """Compare two MissionStateModel definitions."""
 
@@ -1221,6 +1331,30 @@ def build_parser() -> argparse.ArgumentParser:
     par.add_argument('--notes', help='Optional notes recorded with the decision')
     par.add_argument('--format', choices=['text', 'json'], default='text', help='Output format')
     par.set_defaults(func=cmd_approval_resolve)
+
+    # Policy commands
+    ppg = sub.add_parser('policy-generate', help='Generate a policy set scaffold')
+    ppg.add_argument('--name', default='mission.policies', help='Policy set name')
+    ppg.add_argument('--description', help='Optional description')
+    ppg.add_argument('--default-effect', choices=[e.value for e in PolicyEffect], default=PolicyEffect.ALLOW.value)
+    ppg.add_argument('--rule-name', default='sample_rule', help='Example rule name')
+    ppg.add_argument('--rule-description', default='Edit this rule before use.', help='Example rule description')
+    ppg.add_argument('--rule-effect', choices=[e.value for e in PolicyEffect], default=PolicyEffect.DENY.value)
+    ppg.add_argument('--rule-action', default='agent:tool_execute', help='Example action glob')
+    ppg.add_argument('--rule-resource', default='tool://example', help='Example resource glob')
+    ppg.add_argument('--empty', action='store_true', help='Skip adding the sample rule')
+    ppg.add_argument('-o', '--output', help='Output file (stdout if omitted)')
+    ppg.set_defaults(func=cmd_policy_generate)
+
+    ppv = sub.add_parser('policy-validate', help='Validate a policy JSON file')
+    ppv.add_argument('file', help='Policy JSON path')
+    ppv.set_defaults(func=cmd_policy_validate)
+
+    ppd = sub.add_parser('policy-diff', help='Diff two policy JSON files')
+    ppd.add_argument('old', help='Baseline policy file')
+    ppd.add_argument('new', help='Updated policy file')
+    ppd.add_argument('--format', choices=['text', 'json'], default='text', help='Output format')
+    ppd.set_defaults(func=cmd_policy_diff)
 
     return p
 
