@@ -39,6 +39,15 @@ from spark.agents.policies import (
 )
 from spark.agents.types import AgentState, ToolTrace, default_agent_state
 from spark.tools.types import BaseTool, ToolChoice, ToolUse
+from spark.governance.policy import (
+    PolicyApprovalRequired,
+    PolicyDecision,
+    PolicyEffect,
+    PolicyEngine,
+    PolicyRequest,
+    PolicySubject,
+    PolicyViolationError,
+)
 
 SelfAgent = TypeVar('SelfAgent', bound='Agent')
 logger = logging.getLogger(__name__)
@@ -125,6 +134,10 @@ class Agent(Node):
             self.cost_tracker.add_listener(self._handle_cost_update)
 
         self.human_policy_manager = HumanPolicyManager(self.config.human_policy)
+        existing_policy_engine = getattr(self, 'policy_engine', None)
+        if existing_policy_engine is None and self.config.policy_set:
+            existing_policy_engine = PolicyEngine(self.config.policy_set)
+        self.policy_engine = existing_policy_engine
 
     @property
     def state(self) -> AgentState:
@@ -213,6 +226,25 @@ class Agent(Node):
             raise TypeError("inputs must be a Message")
         return ExecutionContext(inputs=inputs, state=self._state)
 
+    def _extract_tool_call_metadata(self, tool_call: dict[str, Any]) -> tuple[str | None, str | None, dict[str, Any]]:
+        """Normalize tool call payloads across providers."""
+
+        tool_func = tool_call.get('function', {})
+        func_name = tool_func.get('name')
+        tool_use_id = tool_call.get('id') or func_name
+
+        raw_args = tool_func.get('arguments') or {}
+        if isinstance(raw_args, str):
+            try:
+                func_args = json.loads(raw_args)
+            except json.JSONDecodeError:
+                logger.error("Failed to parse tool arguments for toolUse: %s", raw_args)
+                func_args = {}
+        else:
+            func_args = raw_args
+
+        return func_name, tool_use_id, func_args
+
     async def _execute_single_tool(
         self,
         tool_call: dict[str, Any],
@@ -227,23 +259,10 @@ class Agent(Node):
         Returns:
             Tuple of (tool_result, content_block for toolResult)
         """
-        tool_func = tool_call.get('function', {})
-        func_name = tool_func.get('name')
-        tool_use_id = tool_call.get('id') or func_name
+        func_name, tool_use_id, func_args = self._extract_tool_call_metadata(tool_call)
 
         if not func_name:
             return None, None
-
-        # Parse arguments if it's a JSON string (from OpenAI)
-        func_args_raw = tool_func.get('arguments') or {}
-        if isinstance(func_args_raw, str):
-            try:
-                func_args = json.loads(func_args_raw)
-            except json.JSONDecodeError:
-                logger.error(f"Failed to parse tool arguments: {func_args_raw}")
-                func_args = {}
-        else:
-            func_args = func_args_raw
 
         func = self.tool_registry.registry.get(func_name)
         if not func or not isinstance(func, BaseTool):
@@ -384,13 +403,27 @@ class Agent(Node):
             List of ContentBlocks with toolResult entries
         """
         tool_result_blocks: list[ContentBlock] = []
+        normalized_calls: list[dict[str, Any]] = []
+
+        for tool_call in tool_calls:
+            func_name, tool_use_id, func_args = self._extract_tool_call_metadata(tool_call)
+            normalized_calls.append(
+                {
+                    'tool_call': tool_call,
+                    'tool_name': func_name,
+                    'tool_use_id': tool_use_id,
+                    'tool_args': func_args,
+                }
+            )
 
         if self.human_policy_manager:
-            for call in tool_calls:
-                func = call.get('function', {})
-                tool_name = func.get('name')
+            for call in normalized_calls:
+                tool_name = call.get('tool_name')
                 if tool_name:
                     self.human_policy_manager.ensure_tool_allowed(tool_name)
+
+        if self.policy_engine:
+            await self._enforce_tool_policies(normalized_calls, context)
 
         if self.config.parallel_tool_execution and len(tool_calls) > 1:
             # Execute tools in parallel for better performance
@@ -433,6 +466,113 @@ class Agent(Node):
                     tool_result_blocks.append(tool_result_block)
 
         return tool_result_blocks
+
+    async def _enforce_tool_policies(
+        self,
+        normalized_calls: list[dict[str, Any]],
+        context: ExecutionContext[AgentState],
+    ) -> None:
+        """Evaluate governance policies before tool execution."""
+
+        if not self.policy_engine:
+            return
+
+        for call in normalized_calls:
+            tool_name = call.get('tool_name')
+            if not tool_name:
+                continue
+            request = self._build_tool_policy_request(
+                tool_name=tool_name,
+                tool_args=call.get('tool_args') or {},
+                tool_use_id=call.get('tool_use_id'),
+                context=context,
+            )
+            decision = self.policy_engine.evaluate(request)
+            await self._record_policy_decision(decision, request, context)
+            if decision.effect == PolicyEffect.DENY:
+                raise PolicyViolationError(
+                    f"Tool '{tool_name}' blocked by policy",
+                    decision=decision,
+                    request=request,
+                )
+            if decision.effect == PolicyEffect.REQUIRE_APPROVAL:
+                raise PolicyApprovalRequired(
+                    f"Tool '{tool_name}' requires approval by policy",
+                    decision=decision,
+                    request=request,
+                )
+
+    def _build_tool_policy_request(
+        self,
+        *,
+        tool_name: str,
+        tool_args: dict[str, Any],
+        tool_use_id: str | None,
+        context: ExecutionContext[AgentState],
+    ) -> PolicyRequest:
+        """Construct a policy request describing the pending tool call."""
+
+        subject = PolicySubject(
+            identifier=self.config.name or self.id,
+            roles=['agent'],
+            attributes={
+                'agent_id': self.id,
+                'agent_type': self.__class__.__name__,
+            },
+            tags={'agent': self.config.name or self.__class__.__name__},
+        )
+        policy_context = {
+            'agent': {
+                'id': self.id,
+                'name': self.config.name,
+                'type': self.__class__.__name__,
+            },
+            'tool': {
+                'name': tool_name,
+                'arguments': tool_args,
+                'tool_use_id': tool_use_id,
+            },
+            'graph': {
+                'has_state': context.graph_state is not None,
+            },
+            'execution': context.metadata.as_dict(),
+        }
+        if context.inputs.metadata:
+            policy_context['inputs'] = dict(context.inputs.metadata)
+
+        return PolicyRequest(
+            subject=subject,
+            action='agent:tool_execute',
+            resource=f"tool://{tool_name}",
+            context=policy_context,
+        )
+
+    async def _record_policy_decision(
+        self,
+        decision: PolicyDecision,
+        request: PolicyRequest,
+        context: ExecutionContext[AgentState] | None = None,
+    ) -> None:
+        """Append a policy decision to graph state for auditing."""
+
+        graph_state = getattr(context, 'graph_state', None) if context else None
+        if graph_state is None:
+            return
+        events = await graph_state.get('policy_events', [])
+        event_list = list(events) if isinstance(events, list) else []
+        event_list.append(
+            {
+                'timestamp': time.time(),
+                'decision': decision.effect.value,
+                'rule': decision.rule,
+                'reason': decision.reason,
+                'action': request.action,
+                'resource': request.resource,
+                'subject': request.subject.model_dump(),
+                'metadata': dict(decision.metadata),
+            }
+        )
+        await graph_state.set('policy_events', event_list)
 
     def _get_tool_choice(self) -> ToolChoice | None:
         """Convert the configured tool_choice to the proper ToolChoice format.

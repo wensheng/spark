@@ -35,6 +35,17 @@ from spark.graphs.graph_state import GraphState
 from spark.graphs.workspace import Workspace
 from spark.graphs.checkpoint import GraphCheckpoint, GraphCheckpointConfig
 from spark.graphs.hooks import GraphLifecycleContext, GraphLifecycleEvent, HookFn, ensure_coroutine
+from spark.governance.policy import (
+    PolicyApprovalRequired,
+    PolicyDecision,
+    PolicyEffect,
+    PolicyEngine,
+    PolicyRequest,
+    PolicyRule,
+    PolicySet,
+    PolicySubject,
+    PolicyViolationError,
+)
 
 # Import telemetry (optional)
 try:
@@ -74,6 +85,10 @@ class Graph(BaseGraph):
 
     def __init__(self, *edges: Edge, **kwargs) -> None:
         """Initialize the Graph with edges and optional parameters."""
+        policy_engine = kwargs.pop('policy_engine', None)
+        policy_set = kwargs.pop('policy_set', None)
+        policy_rules = kwargs.pop('policy_rules', None)
+        policy_state_key = kwargs.pop('policy_state_key', 'policy_events')
         lifecycle_hooks = kwargs.pop('lifecycle_hooks', None)
         state_backend = kwargs.pop('state_backend', None)
         mission_control = kwargs.pop('mission_control', None)
@@ -83,6 +98,12 @@ class Graph(BaseGraph):
         state_schema: type[BaseModel] | BaseModel | None = kwargs.pop('state_schema', None)
         checkpoint_config: GraphCheckpointConfig | None = kwargs.pop('checkpoint_config', None)
         super().__init__(*edges, **kwargs)
+        self._policy_state_key = policy_state_key
+        self._policy_engine: PolicyEngine | None = self._initialize_policy_engine(
+            policy_engine,
+            policy_set,
+            policy_rules,
+        )
         self._running_nodes: set[BaseNode] | None = None
         self._auto_shutdown_enabled: bool = kwargs.get('auto_shutdown', True)
         self._idle_timeout: float = kwargs.get('idle_timeout', 2.0)
@@ -128,6 +149,7 @@ class Graph(BaseGraph):
         self.artifacts: ArtifactManager | None = artifact_manager or (
             ArtifactManager(self.state, policy=artifact_policy) if artifact_policy else None
         )
+        self._attach_policy_engine_to_nodes()
 
     def register_hook(self, event: GraphLifecycleEvent | str, hook: HookFn) -> None:
         """Register a lifecycle hook handler for the graph runtime."""
@@ -318,9 +340,11 @@ class Graph(BaseGraph):
         # Ensure nodes are discovered for timeout handling
         if not self.nodes:
             self._discover_graph_from_start_node()
+            self._attach_policy_engine_to_nodes()
             self._channels_configured = False
 
         await self.state.initialize()
+        await self._enforce_policy_for_task(task)
         if self.workspace:
             await self.workspace.ensure_directories()
             if self._state_enabled:
@@ -381,6 +405,8 @@ class Graph(BaseGraph):
             )
 
             # Create jobs for all nodes' go() methods
+            for node in all_nodes:
+                await self._enforce_policy_for_node(node, task)
             jobs = [node.go() for node in all_nodes]
 
             # Add idle monitor if auto_shutdown is enabled
@@ -449,6 +475,7 @@ class Graph(BaseGraph):
                 )
 
                 for node in processed_nodes:
+                    await self._enforce_policy_for_node(node, task)
                     run_input = node.pop_ready_input()
                     if run_input is None:
                         if node is self.start and initial_run:
@@ -631,6 +658,176 @@ class Graph(BaseGraph):
 
         return results
 
+    def _initialize_policy_engine(
+        self,
+        policy_engine: PolicyEngine | None,
+        policy_set: PolicySet | None,
+        policy_rules: Iterable[PolicyRule] | None,
+    ) -> PolicyEngine | None:
+        """Normalize various policy configuration inputs into an engine instance."""
+
+        if policy_engine is not None:
+            if not isinstance(policy_engine, PolicyEngine):
+                raise TypeError("policy_engine must be an instance of PolicyEngine")
+            return policy_engine
+        if policy_set is not None:
+            if not isinstance(policy_set, PolicySet):
+                raise TypeError("policy_set must be an instance of PolicySet")
+            return PolicyEngine(policy_set)
+        if policy_rules:
+            rules: list[PolicyRule] = []
+            for rule in policy_rules:
+                if isinstance(rule, PolicyRule):
+                    rules.append(rule)
+                elif isinstance(rule, dict):
+                    rules.append(PolicyRule.model_validate(rule))
+                else:
+                    raise TypeError("policy_rules entries must be PolicyRule instances or dictionaries")
+            return PolicyEngine(PolicySet(name=f'graph:{self.id}', rules=rules))
+        return None
+
+    def _attach_policy_engine_to_nodes(self) -> None:
+        """Propagate the current policy engine to all nodes."""
+
+        if not self._policy_engine:
+            return
+        for node in getattr(self, 'nodes', []):
+            setattr(node, 'policy_engine', self._policy_engine)
+
+    async def _enforce_policy_for_task(self, task: Task) -> None:
+        """Run governance checks before executing a task."""
+
+        if not self._policy_engine:
+            return
+        subject = self._build_task_subject(task)
+        context = {
+            'graph': {'id': self.id, 'type': self.__class__.__name__},
+            'task': {
+                'task_id': task.task_id,
+                'type': task.type.value if hasattr(task.type, 'value') else str(task.type),
+                'metadata': dict(task.metadata),
+            },
+        }
+        if task.campaign:
+            context['task']['campaign'] = task.campaign.model_dump()
+        if isinstance(task.inputs, NodeMessage):
+            context['task']['input_metadata'] = dict(task.inputs.metadata)
+        request = PolicyRequest(
+            subject=subject,
+            action='graph:execute_task',
+            resource=f"graph://{self.id}/tasks/{task.task_id or 'anonymous'}",
+            context=context,
+        )
+        decision = self._policy_engine.evaluate(request)
+        await self._record_policy_decision(decision, request)
+        if decision.effect == PolicyEffect.DENY:
+            raise PolicyViolationError(
+                f"Task {task.task_id or ''} blocked by governance policy",
+                decision=decision,
+                request=request,
+            )
+        if decision.effect == PolicyEffect.REQUIRE_APPROVAL:
+            raise PolicyApprovalRequired(
+                f"Task {task.task_id or ''} requires approval per governance policy",
+                decision=decision,
+                request=request,
+            )
+
+    async def _enforce_policy_for_node(self, node: BaseNode, task: Task) -> None:
+        """Evaluate node-level policies before executing."""
+
+        if not self._policy_engine:
+            return
+        subject = self._build_node_subject(node)
+        context = {
+            'graph': {'id': self.id, 'type': self.__class__.__name__},
+            'node': {
+                'id': node.id,
+                'name': getattr(node, 'name', None),
+                'type': node.__class__.__name__,
+            },
+            'task': {
+                'task_id': task.task_id,
+                'type': task.type.value if hasattr(task.type, 'value') else str(task.type),
+            },
+        }
+        request = PolicyRequest(
+            subject=subject,
+            action='node:execute',
+            resource=f"graph://{self.id}/nodes/{node.id}",
+            context=context,
+        )
+        decision = self._policy_engine.evaluate(request)
+        await self._record_policy_decision(decision, request)
+        if decision.effect == PolicyEffect.DENY:
+            raise PolicyViolationError(
+                f"Node {node.id} blocked by governance policy",
+                decision=decision,
+                request=request,
+            )
+        if decision.effect == PolicyEffect.REQUIRE_APPROVAL:
+            raise PolicyApprovalRequired(
+                f"Node {node.id} requires approval per governance policy",
+                decision=decision,
+                request=request,
+            )
+
+    def _build_task_subject(self, task: Task) -> PolicySubject:
+        """Construct a policy subject representing the current task owner."""
+
+        metadata = dict(task.metadata or {})
+        subject_id = metadata.get('subject_id') or metadata.get('run_as') or self.id
+        roles = metadata.get('roles') or []
+        if isinstance(roles, str):
+            roles = [roles]
+        tags: dict[str, str] = {}
+        if task.campaign and task.campaign.campaign_id:
+            tags['campaign'] = task.campaign.campaign_id
+        return PolicySubject(
+            identifier=str(subject_id),
+            roles=[str(role) for role in roles],
+            tags=tags,
+            attributes={
+                'graph_id': self.id,
+                'task_type': task.type.value if hasattr(task.type, 'value') else str(task.type),
+            },
+        )
+
+    def _build_node_subject(self, node: BaseNode) -> PolicySubject:
+        """Construct a policy subject representing a node/agent."""
+
+        identifier = getattr(node, 'name', None) or node.id
+        return PolicySubject(
+            identifier=str(identifier),
+            roles=['node', node.__class__.__name__.lower()],
+            tags={'graph_id': self.id},
+            attributes={
+                'node_id': node.id,
+                'node_type': node.__class__.__name__,
+            },
+        )
+
+    async def _record_policy_decision(self, decision: PolicyDecision, request: PolicyRequest) -> None:
+        """Persist policy decisions for auditing."""
+
+        if not self._state_enabled:
+            return
+        events = await self.state.get(self._policy_state_key, [])
+        timeline = list(events) if isinstance(events, list) else []
+        timeline.append(
+            {
+                'timestamp': time.time(),
+                'decision': decision.effect.value,
+                'rule': decision.rule,
+                'reason': decision.reason,
+                'action': request.action,
+                'resource': request.resource,
+                'subject': request.subject.model_dump(),
+                'metadata': dict(decision.metadata),
+            }
+        )
+        await self.state.set(self._policy_state_key, timeline)
+
     async def _monitor_idle_and_shutdown(self) -> None:
         """Monitor nodes for idle state and automatically shutdown when all nodes are idle.
 
@@ -733,6 +930,7 @@ class Graph(BaseGraph):
         super().add(*edges)
         self._channels_configured = False
         self._attach_event_bus_to_nodes()
+        self._attach_policy_engine_to_nodes()
 
     def _prepare_runtime(self) -> None:
         """Ensure runtime services (event bus, channels, state) are configured."""

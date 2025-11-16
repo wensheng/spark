@@ -94,6 +94,7 @@ class BaseNode(ABC):
         self.human_policy = None
         self.edges: list[Edge] = []
         self.event_bus: GraphEventBus | None = None
+        self.policy_engine = kwargs.get('policy_engine')
 
     def __repr__(self):
         """Return a string representation of the node."""

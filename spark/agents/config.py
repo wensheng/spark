@@ -11,6 +11,7 @@ from spark.models.base import Model
 from spark.models.types import Messages
 from spark.agents.memory import MemoryConfig
 from spark.agents.policies import AgentBudgetConfig, HumanInteractionPolicy
+from spark.governance.policy import PolicySet
 from spark.utils.import_utils import import_from_ref, get_ref_for_callable, safe_import_from_ref
 
 if TYPE_CHECKING:
@@ -180,6 +181,9 @@ class AgentConfig(NodeConfig):
 
     human_policy: HumanInteractionPolicy | None = None
     """Optional human interaction policy (approvals, stop tokens)."""
+
+    policy_set: PolicySet | None = None
+    """Optional governance policies enforced before tool execution."""
 
     @model_validator(mode='after')
     def validate_config(self) -> 'AgentConfig':
