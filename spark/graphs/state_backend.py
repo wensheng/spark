@@ -9,8 +9,12 @@ import sqlite3
 import time
 from abc import ABC, abstractmethod
 from contextlib import asynccontextmanager
+import json
+import os
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, AsyncIterator, Awaitable, Callable, ClassVar
+from uuid import uuid4
 
 from spark.graphs.serializers import StateSerializer, ensure_state_serializer
 
@@ -33,6 +37,14 @@ def _diff_state(before: dict[str, Any], after: dict[str, Any]) -> list[tuple[str
     for key in removed_keys:
         changes.append((key, before[key], None))
     return changes
+
+
+@dataclass(slots=True)
+class BlobHandle:
+    """Metadata describing a persisted blob."""
+
+    blob_id: str
+    metadata: dict[str, Any] = None  # type: ignore[assignment]
 
 
 class StateBackend(ABC):
@@ -175,6 +187,32 @@ class StateBackend(ABC):
     def lock_stats(self) -> dict[str, dict[str, float]]:
         return {name: dict(stats) for name, stats in self._lock_stats.items()}
 
+    def supports_blobs(self) -> bool:
+        """Return True if backend implements streaming blob storage."""
+
+        return False
+
+    @asynccontextmanager
+    async def open_blob_writer(
+        self,
+        *,
+        blob_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> AsyncIterator[Any]:
+        """Stream data into a blob."""
+
+        raise NotImplementedError("Blob storage not supported by backend")
+
+    @asynccontextmanager
+    async def open_blob_reader(self, blob_id: str) -> AsyncIterator[Any]:
+        raise NotImplementedError("Blob storage not supported by backend")
+
+    async def delete_blob(self, blob_id: str) -> None:
+        raise NotImplementedError("Blob storage not supported by backend")
+
+    async def list_blobs(self) -> list[str]:
+        return []
+
 
 class InMemoryStateBackend(StateBackend):
     """Async-lock backed in-memory store used as default GraphState backend."""
@@ -191,6 +229,7 @@ class InMemoryStateBackend(StateBackend):
         self._state: dict[str, Any] = dict(self._initial_state)
         self._lock = asyncio.Lock()
         self._concurrent_mode = False
+        self._blobs: dict[str, bytes] = {}
 
     def enable_concurrent_mode(self) -> None:
         self._concurrent_mode = True
@@ -297,6 +336,61 @@ class InMemoryStateBackend(StateBackend):
         data['config'] = {'concurrent': self._concurrent_mode}
         return data
 
+    def supports_blobs(self) -> bool:
+        return True
+
+    @asynccontextmanager
+    async def open_blob_writer(
+        self,
+        *,
+        blob_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> AsyncIterator[Any]:
+        key = blob_id or uuid4().hex
+        buffer = bytearray()
+
+        class _Writer:
+            blob_id = key  # type: ignore[assignment]
+
+            async def write(self_inner, data: bytes) -> None:
+                buffer.extend(data)
+
+        writer = _Writer()
+        try:
+            yield writer
+            self._blobs[key] = bytes(buffer)
+        finally:
+            buffer.clear()
+
+    @asynccontextmanager
+    async def open_blob_reader(self, blob_id: str) -> AsyncIterator[Any]:
+        if blob_id not in self._blobs:
+            raise KeyError(f"Blob '{blob_id}' not found")
+        data = self._blobs[blob_id]
+
+        class _Reader:
+            def __init__(self_inner) -> None:
+                self_inner._pos = 0
+
+            async def read(self_inner, size: int = -1) -> bytes:
+                if size is None or size < 0:
+                    chunk = data[self_inner._pos :]
+                    self_inner._pos = len(data)
+                    return chunk
+                end = min(self_inner._pos + size, len(data))
+                chunk = data[self_inner._pos : end]
+                self_inner._pos = end
+                return chunk
+
+        reader = _Reader()
+        yield reader
+
+    async def delete_blob(self, blob_id: str) -> None:
+        self._blobs.pop(blob_id, None)
+
+    async def list_blobs(self) -> list[str]:
+        return list(self._blobs.keys())
+
 
 class SQLiteStateBackend(StateBackend):
     """SQLite backed state store for durable mission data."""
@@ -317,6 +411,10 @@ class SQLiteStateBackend(StateBackend):
         self._conn: sqlite3.Connection | None = None
         self._lock = asyncio.Lock()
         self._state_cache: dict[str, Any] = dict(self._initial_state)
+        blob_dir_name = f"{Path(self.db_path).stem}_blobs"
+        self._blob_dir = Path(self.db_path).parent / blob_dir_name
+        self._blob_index_path = self._blob_dir / "index.json"
+        self._blob_index: dict[str, dict[str, Any]] = {}
 
     async def initialize(self) -> None:
         if self._conn is not None:
@@ -325,6 +423,7 @@ class SQLiteStateBackend(StateBackend):
         self._conn.execute(
             f"CREATE TABLE IF NOT EXISTS {self.table_name} (key TEXT PRIMARY KEY, value BLOB NOT NULL)"
         )
+        await self._init_blob_store()
         self._conn.commit()
         rows = self._conn.execute(f"SELECT key, value FROM {self.table_name}").fetchall()
         for key, value in rows:
@@ -462,6 +561,77 @@ class SQLiteStateBackend(StateBackend):
         data['config'] = {'db_path': self.db_path, 'table': self.table_name}
         return data
 
+    def supports_blobs(self) -> bool:
+        return True
+
+    async def _init_blob_store(self) -> None:
+        await asyncio.to_thread(self._blob_dir.mkdir, parents=True, exist_ok=True)
+        if self._blob_index_path.exists():
+            try:
+                text = await asyncio.to_thread(self._blob_index_path.read_text, encoding='utf-8')
+                self._blob_index = json.loads(text)
+            except Exception:
+                logger.exception("Failed to load blob index %s", self._blob_index_path)
+                self._blob_index = {}
+
+    async def _persist_blob_index(self) -> None:
+        payload = json.dumps(self._blob_index, indent=2)
+        await asyncio.to_thread(self._blob_index_path.write_text, payload, encoding='utf-8')
+
+    @asynccontextmanager
+    async def open_blob_writer(
+        self,
+        *,
+        blob_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> AsyncIterator[Any]:
+        blob_key = blob_id or uuid4().hex
+        path = self._blob_dir / blob_key
+        fh = open(path, 'wb')
+
+        class _Writer:
+            blob_id = blob_key  # type: ignore[assignment]
+
+            async def write(self_inner, data: bytes) -> None:
+                await asyncio.to_thread(fh.write, data)
+
+        try:
+            yield _Writer()
+            await asyncio.to_thread(fh.flush)
+            self._blob_index[blob_key] = metadata or {}
+            await self._persist_blob_index()
+        finally:
+            await asyncio.to_thread(fh.close)
+
+    @asynccontextmanager
+    async def open_blob_reader(self, blob_id: str) -> AsyncIterator[Any]:
+        path = self._blob_dir / blob_id
+        if not path.exists():
+            raise KeyError(f"Blob '{blob_id}' not found")
+        fh = open(path, 'rb')
+
+        class _Reader:
+            async def read(self_inner, size: int = -1) -> bytes:
+                return await asyncio.to_thread(fh.read, size)
+
+        try:
+            yield _Reader()
+        finally:
+            await asyncio.to_thread(fh.close)
+
+    async def delete_blob(self, blob_id: str) -> None:
+        path = self._blob_dir / blob_id
+        if path.exists():
+            try:
+                os.remove(path)
+            except OSError:
+                logger.exception("Failed to delete blob %s", blob_id)
+        self._blob_index.pop(blob_id, None)
+        await self._persist_blob_index()
+
+    async def list_blobs(self) -> list[str]:
+        return list(self._blob_index.keys())
+
 
 class JSONFileStateBackend(StateBackend):
     """File-backed backend storing JSON payload."""
@@ -479,6 +649,9 @@ class JSONFileStateBackend(StateBackend):
         self.path = Path(path)
         self._lock = asyncio.Lock()
         self._state_cache: dict[str, Any] = {}
+        self._blob_dir = self.path.parent / f"{self.path.stem}_blobs"
+        self._blob_index_path = self._blob_dir / "index.json"
+        self._blob_index: dict[str, str] = {}
 
     async def initialize(self) -> None:
         if self.path.exists():
@@ -493,6 +666,7 @@ class JSONFileStateBackend(StateBackend):
         if self._initial_state:
             self._state_cache.update(self._initial_state)
             await self._write_file()
+        await self._init_blob_store()
 
     async def _write_file(self) -> None:
         await asyncio.to_thread(self.path.parent.mkdir, parents=True, exist_ok=True)
@@ -585,6 +759,77 @@ class JSONFileStateBackend(StateBackend):
         data = super().describe()
         data['config'] = {'path': str(self.path)}
         return data
+
+    def supports_blobs(self) -> bool:
+        return True
+
+    async def _init_blob_store(self) -> None:
+        await asyncio.to_thread(self._blob_dir.mkdir, parents=True, exist_ok=True)
+        if self._blob_index_path.exists():
+            try:
+                text = await asyncio.to_thread(self._blob_index_path.read_text, encoding='utf-8')
+                self._blob_index = json.loads(text)
+            except Exception:
+                logger.exception("Failed to load blob index %s", self._blob_index_path)
+                self._blob_index = {}
+
+    async def _persist_blob_index(self) -> None:
+        payload = json.dumps(self._blob_index, indent=2)
+        await asyncio.to_thread(self._blob_index_path.write_text, payload, encoding='utf-8')
+
+    @asynccontextmanager
+    async def open_blob_writer(
+        self,
+        *,
+        blob_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> AsyncIterator[Any]:
+        blob_key = blob_id or uuid4().hex
+        path = self._blob_dir / blob_key
+        fh = open(path, 'wb')
+
+        class _Writer:
+            blob_id = blob_key  # type: ignore[assignment]
+
+            async def write(self_inner, data: bytes) -> None:
+                await asyncio.to_thread(fh.write, data)
+
+        try:
+            yield _Writer()
+            await asyncio.to_thread(fh.flush)
+            self._blob_index[blob_key] = metadata or {}
+            await self._persist_blob_index()
+        finally:
+            await asyncio.to_thread(fh.close)
+
+    @asynccontextmanager
+    async def open_blob_reader(self, blob_id: str) -> AsyncIterator[Any]:
+        path = self._blob_dir / blob_id
+        if not path.exists():
+            raise KeyError(f"Blob '{blob_id}' not found")
+        fh = open(path, 'rb')
+
+        class _Reader:
+            async def read(self_inner, size: int = -1) -> bytes:
+                return await asyncio.to_thread(fh.read, size)
+
+        try:
+            yield _Reader()
+        finally:
+            await asyncio.to_thread(fh.close)
+
+    async def delete_blob(self, blob_id: str) -> None:
+        path = self._blob_dir / blob_id
+        if path.exists():
+            try:
+                os.remove(path)
+            except OSError:
+                logger.exception("Failed to delete blob %s", blob_id)
+        self._blob_index.pop(blob_id, None)
+        await self._persist_blob_index()
+
+    async def list_blobs(self) -> list[str]:
+        return list(self._blob_index.keys())
 
 
 _BACKEND_REGISTRY: dict[str, type[StateBackend]] = {}

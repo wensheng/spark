@@ -237,6 +237,40 @@ class GraphState:
         for mailbox_id, entries in payload.items():
             await self.persist_mailbox_messages(mailbox_id, list(entries))
 
+    def supports_blobs(self) -> bool:
+        """Return True if backend exposes streaming blob storage."""
+
+        return self._backend.supports_blobs()
+
+    @asynccontextmanager
+    async def open_blob_writer(
+        self,
+        *,
+        blob_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ):
+        if not self.supports_blobs():
+            raise RuntimeError("State backend does not support blob storage")
+        async with self._backend.open_blob_writer(blob_id=blob_id, metadata=metadata) as writer:
+            yield writer
+
+    @asynccontextmanager
+    async def open_blob_reader(self, blob_id: str):
+        if not self.supports_blobs():
+            raise RuntimeError("State backend does not support blob storage")
+        async with self._backend.open_blob_reader(blob_id) as reader:
+            yield reader
+
+    async def delete_blob(self, blob_id: str) -> None:
+        if not self.supports_blobs():
+            raise RuntimeError("State backend does not support blob storage")
+        await self._backend.delete_blob(blob_id)
+
+    async def list_blobs(self) -> list[str]:
+        if not self.supports_blobs():
+            return []
+        return await self._backend.list_blobs()
+
     def _strip_metadata(self, snapshot: dict[str, Any]) -> dict[str, Any]:
         data = dict(snapshot)
         data.pop(self._SCHEMA_VERSION_KEY, None)
