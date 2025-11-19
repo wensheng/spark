@@ -13,15 +13,17 @@ from pydantic import BaseModel
 _OPENAI_CLIENT: dict[str, openai.OpenAI] = {}
 
 
-def get_openai_client(provider: str = "openai", base_url: str | None = None):
-    """Get or create an OpenAI client for the specified provider."""
-    if provider in _OPENAI_CLIENT:
-        return _OPENAI_CLIENT[provider]
-    _OPENAI_CLIENT[provider] = openai.OpenAI(
+def get_openai_client():
+    """Get or create an OpenAI compatible client."""
+    base_url = os.getenv('OPENAI_BASE_URL', 'openai')
+    if base_url in _OPENAI_CLIENT:
+        return _OPENAI_CLIENT[base_url]
+
+    _OPENAI_CLIENT[base_url] = openai.OpenAI(
         api_key=os.getenv("OPENAI_API_KEY", 'null'),
-        base_url=base_url,
+        base_url=os.getenv("OPENAI_BASE_URL", base_url),
     )
-    return _OPENAI_CLIENT[provider]
+    return _OPENAI_CLIENT[base_url]
 
 
 class SparkUtilError(Exception):
@@ -41,8 +43,6 @@ def ask_llm(
     instructions: str | None = None,
     tools: list[dict[str, Any]] | None = None,
     response_format: Any = None,
-    provider: str = "openai",
-    base_url: str | None = None,
 ) -> str:
     """
     Use new OpenAI responses.create API for openai.
@@ -50,9 +50,9 @@ def ask_llm(
     """
     if response_format is not None and not issubclass(response_format, BaseModel):
         raise ValueError("response_format must be a Pydantic BaseModel or None")
-    client = get_openai_client(provider=provider, base_url=base_url)
+    client = get_openai_client()
 
-    if provider == "openai":
+    if not os.getenv('OPENAI_BASE_URL') or os.environ['OPENAI_BASE_URL'] == 'openai':
         if response_format is not None:
             response = client.responses.parse(
                 model=model,
