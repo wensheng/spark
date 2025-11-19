@@ -19,10 +19,13 @@ def get_openai_client():
     if base_url in _OPENAI_CLIENT:
         return _OPENAI_CLIENT[base_url]
 
-    _OPENAI_CLIENT[base_url] = openai.OpenAI(
-        api_key=os.getenv("OPENAI_API_KEY", 'null'),
-        base_url=os.getenv("OPENAI_BASE_URL", base_url),
-    )
+    if base_url == 'openai':
+        _OPENAI_CLIENT[base_url] = openai.OpenAI()
+    else:
+        _OPENAI_CLIENT[base_url] = openai.OpenAI(
+            api_key=os.getenv("OPENAI_API_KEY", 'null'),
+            base_url=os.getenv("OPENAI_BASE_URL", base_url),
+        )
     return _OPENAI_CLIENT[base_url]
 
 
