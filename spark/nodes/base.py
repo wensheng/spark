@@ -339,12 +339,10 @@ class BaseNode(ABC):
         """Overload >> operator to add a next node / edge / chain."""
         if isinstance(right, Chain):
             edge = Edge(from_node=self, to_node=right.nodes[0], condition=EdgeCondition(None))
-            self.edges.append(edge)
             right.nodes.insert(0, self)
             return right
         # right is a node
         edge = Edge(from_node=self, to_node=right, condition=EdgeCondition(None))
-        self.edges.append(edge)
         return Chain([self, right])
 
     def goto(
@@ -404,11 +402,9 @@ class Chain:
         """Use >> operator to connect to next node."""
         if isinstance(right, Chain):
             edge = Edge(from_node=self.nodes[-1], to_node=right.nodes[0])
-            self.nodes[-1].edges.append(edge)
             self.nodes.extend(right.nodes)
         else:
             edge = Edge(from_node=self.nodes[-1], to_node=right)
-            self.nodes[-1].edges.append(edge)
             self.nodes.append(right)
         return self
 
