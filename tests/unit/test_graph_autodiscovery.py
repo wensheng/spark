@@ -271,5 +271,27 @@ async def test_graph_run_cycle_returns_last_output():
     assert result.content == {'count': 2, 'continue': False}
 
 
+@pytest.mark.asyncio
+async def test_chain_operator_runs_each_node_once():
+    """Using >> to build chains should only connect nodes once."""
+
+    class CounterNode(Node):
+        async def process(self, context: ExecutionContext):
+            return {'count': context.inputs.content.get('count', 0) + 1}
+
+    a = CounterNode()
+    b = CounterNode()
+    c = CounterNode()
+
+    a >> b >> c
+
+    graph = Graph(start=a)
+    await graph.run({'count': 0})
+
+    assert a.state['process_count'] == 1
+    assert b.state['process_count'] == 1
+    assert c.state['process_count'] == 1
+
+
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])

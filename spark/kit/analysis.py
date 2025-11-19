@@ -281,21 +281,29 @@ class GraphAnalyzer:
             if node_id in visited:
                 continue
 
-            # Start a chain if this node has exactly one successor
-            if len(self._adjacency.get(node_id, [])) == 1:
-                chain = [node_id]
-                current = self._adjacency[node_id][0]
+            # Start a chain only from the head of a sequence.
+            # A head is a node that doesn't have a single predecessor.
+            if len(self._reverse_adjacency.get(node_id, [])) != 1:
+                # Follow the chain from this head
+                if len(self._adjacency.get(node_id, [])) == 1:
+                    chain = [node_id]
+                    visited.add(node_id)
+                    current = self._adjacency[node_id][0]
 
-                while (current not in visited and
-                       len(self._reverse_adjacency.get(current, [])) == 1 and
-                       len(self._adjacency.get(current, [])) == 1):
-                    chain.append(current)
-                    visited.add(current)
-                    current = self._adjacency[current][0]
+                    # Traverse nodes with exactly one predecessor and one successor
+                    while (current not in visited and
+                           len(self._reverse_adjacency.get(current, [])) == 1):
+                        chain.append(current)
+                        visited.add(current)
+                        
+                        successors = self._adjacency.get(current, [])
+                        if len(successors) == 1:
+                            current = successors[0]
+                        else:
+                            break  # End of chain
 
-                if len(chain) > 1:
-                    chains.append(chain)
-                    visited.update(chain)
+                    if len(chain) > 1:
+                        chains.append(chain)
 
         return chains
 
