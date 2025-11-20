@@ -12,7 +12,7 @@ from spark.models.types import Messages
 from spark.agents.memory import MemoryConfig
 from spark.agents.policies import AgentBudgetConfig, HumanInteractionPolicy
 from spark.governance.policy import PolicySet
-from spark.utils.import_utils import import_from_ref, get_ref_for_callable, safe_import_from_ref
+from spark.utils.import_utils import import_from_ref, get_ref_for_callable, safe_import_from_ref, get_ref_for_class
 
 if TYPE_CHECKING:
     from spark.agents.strategies import ReasoningStrategy
