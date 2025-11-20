@@ -30,7 +30,7 @@ def get_shell_from_env():
     # Check for POSIX (Linux/macOS)
     else:
         if os.environ.get("SHELL"):
-            return
+            return os.environ.get("SHELL")
         else:
             return "Unknown POSIX shell"
 
@@ -38,11 +38,15 @@ def get_shell_from_env():
 class ShellTool(BaseTool):
     """
     A tool that executes commands in a shell
-
     """
 
     def __init__(
-        self, name: str, description: str, command_template: str, parameters: dict[str, dict[str, Any]] | None = None
+        self,
+        name: str = "shell_tool",
+        description: str = "A Tool that executes shell commands",
+        command_template: str | None = None,
+        parameters: dict[str, dict[str, Any]] | None = None,
+        timeout: int | None = None,
     ) -> None:
         """Initialize the shell tool with a command template."""
         super().__init__()
@@ -51,6 +55,7 @@ class ShellTool(BaseTool):
         self._description = description
         self._command_template = command_template
         self._parameters = parameters or {}
+        self._timeout = timeout
 
     @property
     def tool_name(self) -> str:
@@ -65,43 +70,76 @@ class ShellTool(BaseTool):
         # Build input schema from parameters
         input_schema: dict[str, Any] = {"type": "object", "properties": {}, "required": []}
 
-        for param_name, param_info in self._parameters.items():
-            input_schema["properties"][param_name] = {
-                "type": param_info.get("type", "string"),
-                "description": param_info.get("description", ""),
+        if (
+            (not self._command_template and self._parameters)
+            or
+            (self._command_template and not self._parameters)
+        ):  
+            raise ValueError("You must provide both command_template and parameters or neither.")
+        if not self._command_template and not self._parameters:
+            input_schema["properties"]["command"] = {
+                "type": "string",
+                "description": "The shell command to execute",
             }
-            if param_info.get("required", True):
-                input_schema["required"].append(param_name)
+            input_schema["required"].append("command")
+        else:  
+            for param_name, param_info in self._parameters.items():
+                input_schema["properties"][param_name] = {
+                    "type": param_info.get("type", "string"),
+                    "description": param_info.get("description", ""),
+                }
+                if param_info.get("required", True):
+                    input_schema["required"].append(param_name)
 
         return {
             "name": self._name,
             "description": self._description,
             "parameters": input_schema,
-            "response_schema": {},
+            "response_schema": {
+                "type": "object",
+                "properties": {
+                    "stdout": {"type": "string", "description": "Standard output of the command"},
+                    "stderr": {"type": "string", "description": "Standard error of the command"},
+                    "returncode": {"type": "integer", "description": "Return code of the command"},
+                },
+            },
         }
 
     def __call__(self, *args: Any, **kwargs: Any) -> Any:
         """Call the tool with the given arguments."""
-        # Extract values in the order they appear in parameters
-        format_args = []
-        for param_name in self._parameters.keys():
-            if param_name not in kwargs:
-                raise ValueError(f"Missing required parameter: {param_name}")
-            format_args.append(kwargs[param_name])
+        command = None
 
-        # If no parameters defined, fall back to using args
-        if not self._parameters and not args:
-            raise ValueError("No command provided to execute.")
-
-        if self._parameters:
+        if self._command_template and self._parameters:
+            format_args = []
+            for param_name in self._parameters.keys():
+                if param_name not in kwargs:
+                    raise ValueError(f"Missing required parameter: {param_name}")
+                format_args.append(kwargs[param_name])
             command = self._command_template.format(*format_args)
         else:
-            command = self._command_template.format(*args)
+            if "command" in kwargs and isinstance(kwargs["command"], str) and kwargs["command"].strip():
+                command = kwargs["command"]
+            elif args:
+                if len(args) == 1:
+                    command = str(args[0])
+                else:
+                    command = " ".join(str(a) for a in args)
+            else:
+                raise ValueError("No command provided to execute.")
 
         if platform.system() == "Windows":
-            result = subprocess.run(command, shell=True, capture_output=True, text=True, creationflags=CREATE_NO_WINDOW)
+            creationflag = CREATE_NO_WINDOW
         else:
-            result = subprocess.run(command, shell=True, capture_output=True, text=True)
+            creationflag = 0
+        result = subprocess.run(
+            command,
+            shell=True,
+            encoding="utf-8",
+            capture_output=True,
+            text=True,
+            timeout=self._timeout,
+            creationflags=creationflag,
+        )
         return {
             "stdout": result.stdout,
             "stderr": result.stderr,
