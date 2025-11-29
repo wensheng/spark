@@ -6,15 +6,18 @@ and estimating API costs across agent executions.
 """
 
 from dataclasses import dataclass, field
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Optional
 import logging
+import json
+import os
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
 
-# Pricing per 1M tokens (as of 2025-01-13)
+# Fallback pricing per 1M tokens (used if config file not found)
 # These are approximate values and should be updated based on actual pricing
-MODEL_PRICING = {
+_FALLBACK_MODEL_PRICING = {
     # OpenAI models
     'gpt-4-turbo': {'input': 10.00, 'output': 30.00},
     'gpt-4': {'input': 30.00, 'output': 60.00},
@@ -40,6 +43,77 @@ MODEL_PRICING = {
     # Default for unknown models
     'default': {'input': 5.00, 'output': 15.00},
 }
+
+
+def _load_pricing_config(config_path: Optional[str] = None) -> dict[str, dict[str, float]]:
+    """Load model pricing from a config file.
+
+    Args:
+        config_path: Optional path to pricing config file. If None, looks for:
+                    1. Environment variable SPARK_PRICING_CONFIG
+                    2. ./model_pricing.json (current directory)
+                    3. ~/.spark/model_pricing.json (user home)
+                    4. <package>/agents/model_pricing.json (package default)
+
+    Returns:
+        Dictionary mapping model IDs to pricing info with 'input' and 'output' keys
+    """
+    # Determine config file path
+    if config_path is None:
+        # Try environment variable
+        config_path = os.environ.get('SPARK_PRICING_CONFIG')
+
+        if config_path is None:
+            # Try current directory
+            if os.path.exists('model_pricing.json'):
+                config_path = 'model_pricing.json'
+            # Try user home directory
+            elif os.path.exists(os.path.expanduser('~/.spark/model_pricing.json')):
+                config_path = os.path.expanduser('~/.spark/model_pricing.json')
+            else:
+                # Use package default
+                package_dir = Path(__file__).parent
+                default_config = package_dir / 'model_pricing.json'
+                if default_config.exists():
+                    config_path = str(default_config)
+
+    # Try to load from config file
+    if config_path and os.path.exists(config_path):
+        try:
+            with open(config_path, 'r') as f:
+                config = json.load(f)
+
+            # Flatten the nested structure (provider -> models)
+            pricing = {}
+            for provider_key, provider_data in config.items():
+                if provider_key.startswith('_'):  # Skip metadata keys like _comment
+                    continue
+                if provider_key == 'default':
+                    pricing['default'] = provider_data
+                elif isinstance(provider_data, dict):
+                    pricing.update(provider_data)
+
+            logger.info(f"Loaded model pricing from {config_path}")
+            return pricing
+        except Exception as e:
+            logger.warning(
+                f"Failed to load pricing config from {config_path}: {e}. "
+                f"Using fallback pricing."
+            )
+    else:
+        logger.debug(
+            f"No pricing config file found (tried {config_path}). "
+            f"Using fallback pricing. Set SPARK_PRICING_CONFIG environment variable "
+            f"or place model_pricing.json in current directory, ~/.spark/, "
+            f"or use the package default."
+        )
+
+    # Return fallback pricing
+    return _FALLBACK_MODEL_PRICING
+
+
+# Load pricing on module import
+MODEL_PRICING = _load_pricing_config()
 
 
 @dataclass
@@ -89,7 +163,7 @@ class CostStats:
     total_output_tokens: int = 0
     total_tokens: int = 0
     total_cost: float = 0.0
-    cost_by_model: Dict[str, float] = field(default_factory=dict)
+    cost_by_model: dict[str, float] = field(default_factory=dict)
 
     def __repr__(self) -> str:
         return (
@@ -109,15 +183,23 @@ class CostTracker:
         print(f"Total cost: ${stats.total_cost:.4f}")
     """
 
-    def __init__(self):
-        """Initialize cost tracker."""
-        self.calls: List[CallCost] = []
+    def __init__(self, pricing_config_path: Optional[str] = None):
+        """Initialize cost tracker.
+
+        Args:
+            pricing_config_path: Optional path to custom pricing config file.
+                                If None, uses the default pricing lookup order.
+        """
+        self.calls: list[CallCost] = []
         self._total_input_tokens = 0
         self._total_output_tokens = 0
         self._total_cost = 0.0
-        self._cost_by_model: Dict[str, float] = {}
-        self._stats_by_namespace: Dict[str, CostStats] = {}
+        self._cost_by_model: dict[str, float] = {}
+        self._stats_by_namespace: dict[str, CostStats] = {}
         self._listeners: list[Callable[[CallCost, str], None]] = []
+        self._pricing_config_path = pricing_config_path
+        self._pricing: dict[str, dict[str, float]] = {}
+        self._load_pricing()
 
     def record_call(
         self,
@@ -191,7 +273,23 @@ class CostTracker:
 
         return call_cost
 
-    def _get_pricing(self, model_id: str) -> Dict[str, float]:
+    def _load_pricing(self) -> None:
+        """Load pricing configuration from file or use defaults."""
+        self._pricing = _load_pricing_config(self._pricing_config_path)
+
+    def reload_pricing(self, config_path: Optional[str] = None) -> None:
+        """Reload pricing configuration from file.
+
+        Args:
+            config_path: Optional path to pricing config file. If None, uses
+                        the path specified during initialization or default lookup.
+        """
+        if config_path is not None:
+            self._pricing_config_path = config_path
+        self._load_pricing()
+        logger.info("Pricing configuration reloaded")
+
+    def _get_pricing(self, model_id: str) -> dict[str, float]:
         """Get pricing for a model.
 
         Args:
@@ -201,20 +299,20 @@ class CostTracker:
             Dict with 'input' and 'output' pricing per 1M tokens
         """
         # Try exact match first
-        if model_id in MODEL_PRICING:
-            return MODEL_PRICING[model_id]
+        if model_id in self._pricing:
+            return self._pricing[model_id]
 
         # Try partial match (e.g., 'gpt-4o-2024-05-13' matches 'gpt-4o')
-        for key in MODEL_PRICING:
+        for key in self._pricing:
             if model_id.startswith(key):
-                return MODEL_PRICING[key]
+                return self._pricing[key]
 
         # Use default pricing
         logger.warning(
             f"Unknown model '{model_id}', using default pricing. "
-            f"Update MODEL_PRICING in cost_tracker.py for accurate costs."
+            f"Update model_pricing.json config file for accurate costs."
         )
-        return MODEL_PRICING['default']
+        return self._pricing.get('default', {'input': 5.00, 'output': 15.00})
 
     def add_listener(self, listener: Callable[[CallCost, str], None]) -> None:
         """Register a callback invoked whenever a call is recorded."""
@@ -261,7 +359,7 @@ class CostTracker:
             cost_by_model=dict(self._cost_by_model)
         )
 
-    def get_calls(self, model_id: Optional[str] = None, namespace: str | None = None) -> List[CallCost]:
+    def get_calls(self, model_id: Optional[str] = None, namespace: str | None = None) -> list[CallCost]:
         """Get call history, optionally filtered by model.
 
         Args:
