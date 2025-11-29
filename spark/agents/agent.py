@@ -674,13 +674,16 @@ class Agent(Node):
             # Get tool choice from configuration
             tool_choice: ToolChoice | None = self._get_tool_choice()
 
+            # When tool_choice is None (e.g., 'none' was configured), disable tools completely
+            active_tool_specs = None if tool_choice is None else self.tool_specs
+
             if self.output_mode == 'json':
                 # When using JSON mode with tools, we need to loop like text mode
                 # but request structured output on each iteration
                 iteration_count = 0
 
                 # Keep native tool calling available even when requesting structured JSON output
-                json_mode_tool_specs = self.tool_specs
+                json_mode_tool_specs = active_tool_specs
                 json_mode_tool_choice = tool_choice
 
                 self._register_llm_call()
@@ -828,7 +831,7 @@ class Agent(Node):
             self._register_llm_call()
             self._check_runtime_budget()
             completion_message = await self.model.get_text(
-                payload, system_prompt=self.system_prompt, tool_specs=self.tool_specs, tool_choice=tool_choice
+                payload, system_prompt=self.system_prompt, tool_specs=active_tool_specs, tool_choice=tool_choice
             )
             # print('completion_message:', completion_message)
 
@@ -863,7 +866,7 @@ class Agent(Node):
                 self._register_llm_call()
                 self._check_runtime_budget()
                 completion_message = await self.model.get_text(
-                    payload, system_prompt=self.system_prompt, tool_specs=self.tool_specs, tool_choice=tool_choice
+                    payload, system_prompt=self.system_prompt, tool_specs=active_tool_specs, tool_choice=tool_choice
                 )
                 await self.reasoning_strategy.update_plan(None, self._state)
 

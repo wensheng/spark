@@ -21,7 +21,7 @@ class NodeMessage(BaseModel):
 
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
-    id: str | None = Field(default=None, coerce_numbers_to_str=True)
+    id: str | None = None
     type: Literal['json', 'text'] = 'text'
     content: Any = None
 
