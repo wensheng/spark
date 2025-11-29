@@ -6,7 +6,7 @@ import asyncio
 import functools
 import time
 from collections import deque
-from collections.abc import Hashable
+from collections.abc import Hashable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Callable, Literal, Protocol, runtime_checkable
 
@@ -251,16 +251,14 @@ class RetryPolicy:
 
     def __call__(self, node: BaseNode) -> BaseNode:
         """Apply retry policy to a node by wrapping its execution with retry logic."""
-        original_do = node.do
+        original_process = node._process # <--- Changed to wrap _process
 
-        @functools.wraps(original_do)
-        async def new_do(inputs: NodeMessage | None = None) -> Any:
-            if not inputs:
-                inputs = NodeMessage(content=None)
+        @functools.wraps(original_process)
+        async def new_process(context: ExecutionContext) -> Any: # <--- Takes context
             attempt_number = 0
             while True:
                 try:
-                    return await original_do(inputs)
+                    return await original_process(context)
                 except Exception as exc:
                     if not self.is_retryable_exception(exc):
                         raise
@@ -268,9 +266,9 @@ class RetryPolicy:
                         raise NodeExecutionError(
                             kind="retry_exhausted",
                             node=node,
-                            stage="do",
+                            stage="_process", # <--- Stage updated
                             original=exc,
-                            ctx_snapshot=ExecutionContext(inputs=inputs),
+                            ctx_snapshot=context.snapshot(),
                         ) from exc
 
                     delay = self.get_delay(attempt_number)
@@ -278,7 +276,7 @@ class RetryPolicy:
                     if delay > 0:
                         await asyncio.sleep(delay)
 
-        node.do = new_do  # type: ignore
+        node._process = new_process # <--- wraps _process
         return node
 
 
@@ -290,20 +288,20 @@ class TimeoutPolicy:
 
     def __call__(self, node: BaseNode) -> BaseNode:
         """Apply timeout policy to a node by wrapping its execution with timeout logic."""
-        original_do = node.do
+        original_process = node._process # <--- Changed to wrap _process
 
-        @functools.wraps(original_do)
-        async def new_do(inputs: NodeMessage | None = None) -> Any:
+        @functools.wraps(original_process)
+        async def new_process(context: ExecutionContext) -> Any: # <--- Takes context
             try:
-                return await asyncio.wait_for(original_do(inputs), self.seconds)
+                return await asyncio.wait_for(original_process(context), self.seconds)
             except asyncio.TimeoutError as exc:
                 raise NodeTimeoutError(
                     node=node,
-                    stage="do",
+                    stage="_process", # <--- Stage updated
                     timeout=self.seconds,
                 ) from exc
 
-        node.do = new_do  # type: ignore
+        node._process = new_process # <--- wraps _process
         return node
 
 
@@ -312,22 +310,22 @@ class RateLimiterPolicy:
     """Configuration for rate limiting policy."""
 
     resource_key: str
-    rate_limit: Rate
+    rate: Rate
     registry: RateLimiterRegistry = field(default_factory=lambda: _DEFAULT_RATE_REGISTRY)
 
     def __call__(self, node: BaseNode) -> BaseNode:
         """Apply rate limiting policy to a node by wrapping its execution with rate limiting logic."""
-        original_do = node.do
+        original_process = node._process # <--- Changed to wrap _process
 
-        @functools.wraps(original_do)
-        async def new_do(inputs: NodeMessage | None = None) -> Any:
-            bucket = await self.registry.acquire(self.resource_key, self.rate_limit)
+        @functools.wraps(original_process)
+        async def new_process(context: ExecutionContext) -> Any: # <--- Takes context
+            bucket = await self.registry.acquire(self.resource_key, self.rate)
             try:
-                return await original_do(inputs)
+                return await original_process(context)
             finally:
                 bucket.release()
 
-        node.do = new_do  # type: ignore
+        node._process = new_process # <--- wraps _process
         return node
 
 
@@ -341,12 +339,10 @@ class CircuitBreakerPolicy:
 
     def __call__(self, node: BaseNode) -> BaseNode:
         """Apply circuit breaker policy to a node by wrapping its execution with circuit breaker logic."""
-        original_do = node.do
+        original_process = node._process # <--- Changed to wrap _process
 
-        @functools.wraps(original_do)
-        async def new_do(inputs: NodeMessage | None = None) -> Any:
-            if not inputs:
-                inputs = NodeMessage(content=None)
+        @functools.wraps(original_process)
+        async def new_process(context: ExecutionContext) -> Any: # <--- Takes context
             state = await self.registry.get(self.breaker_key, self.circuit_breaker)
             try:
                 await state.allow()
@@ -354,20 +350,20 @@ class CircuitBreakerPolicy:
                 raise NodeExecutionError(
                     kind="circuit_open",
                     node=node,
-                    stage="do",
+                    stage="_process", # <--- Stage updated
                     original=exc,
-                    ctx_snapshot=ExecutionContext(inputs=inputs),
+                    ctx_snapshot=context.snapshot(),
                 ) from exc
 
             try:
-                result = await original_do(inputs)
+                result = await original_process(context)
                 await state.record_success()
                 return result
-            except Exception:
+            except Exception: # Capture all exceptions to record failure
                 await state.record_failure()
                 raise
 
-        node.do = new_do  # type: ignore
+        node._process = new_process # <--- wraps _process
         return node
 
 
@@ -441,6 +437,65 @@ class InMemoryIdempotencyStore:
 class IdempotencyConfig:
     """Configuration for idempotency handling to prevent duplicate operations."""
 
-    store: IdempotencyStore
+    store: IdempotencyStore = field(default_factory=InMemoryIdempotencyStore)
     key_field: str = "idempotency_key"
-    key_resolver: Callable[["ExecutionContext"], Hashable | None] | None = None
+    key_resolver: Callable[[ExecutionContext], Hashable | None] | None = None
+
+
+@dataclass(slots=True)
+class IdempotencyPolicy:
+    """Policy for ensuring operation idempotency through replay detection."""
+
+    config: IdempotencyConfig
+    
+    def __call__(self, node: BaseNode) -> BaseNode:
+        """Apply idempotency policy to a node by wrapping its execution."""
+        original_process = node._process
+
+        @functools.wraps(original_process)
+        async def new_process(context: ExecutionContext) -> Any:
+            key = self._resolve_key(context)
+            
+            if key is None:
+                # Cannot apply idempotency without a key; proceed with original process
+                return await original_process(context) 
+
+            # Check for existing idempotency record before attempting operation.
+            record = await self.config.store.get(key)
+            if record is not None:
+                # Operation was already performed, replay the result
+                return record.resolve_result
+
+            # If no record, execute the original process
+            try:
+                result = await original_process(context)
+                # Store idempotency record after successful operation completion.
+                record = IdempotencyRecord(
+                    process_result=_safe_copy(result),
+                    resolve_result=_safe_copy(result), 
+                    ctx_snapshot=_safe_copy(context.snapshot()),
+                )
+                await self.config.store.set(key, record)
+                return result
+            except Exception:
+                # On failure, do not store an idempotency record, and re-raise the exception.
+                raise
+
+        node._process = new_process
+        return node
+    
+    def _resolve_key(self, context: ExecutionContext) -> Hashable | None:
+        """Resolve the idempotency key from context using configured resolver or field."""
+        resolver = self.config.key_resolver
+        if resolver is not None:
+            key = resolver(context)
+        else:
+            key = getattr(context.state, self.config.key_field, None)
+            if key is None and context.inputs is not None and context.inputs.content is not None:
+                if isinstance(context.inputs.content, Mapping):
+                    key = context.inputs.content.get(self.config.key_field)
+        if key is None:
+            return None
+        if not isinstance(key, Hashable):
+            raise TypeError("idempotency key must be hashable")
+        return key

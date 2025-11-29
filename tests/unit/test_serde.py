@@ -56,6 +56,8 @@ from spark.nodes.spec import (
 class TestNode(Node):
     """Concrete Node subclass for testing."""
 
+    __test__ = False
+
     async def process(self, context: ExecutionContext) -> Any:
         """Simple pass-through process."""
         return context.inputs

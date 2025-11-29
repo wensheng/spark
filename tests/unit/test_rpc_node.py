@@ -16,6 +16,8 @@ from spark.nodes.channels import ChannelMessage
 class TestRpcNode(RpcNode):
     """Test RPC node with sample methods."""
 
+    __test__ = False
+
     async def rpc_add(self, params, context):
         """Add two numbers."""
         return {"sum": params["a"] + params["b"]}

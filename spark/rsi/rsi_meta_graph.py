@@ -129,6 +129,8 @@ class ValidationGateNode(Node):
 class TestGateNode(Node):
     """Gate node that filters hypotheses that passed testing."""
 
+    __test__ = False
+
     async def process(self, context):
         """Filter to only hypotheses that passed testing.
 

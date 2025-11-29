@@ -8,21 +8,33 @@ from spark.nodes import Node
 
 # Test nodes
 class TestNodeA(Node):
+
+    __test__ = False
+
     async def process(self, context):
         return {'next': 'b'}
 
 
 class TestNodeB(Node):
+
+    __test__ = False
+
     async def process(self, context):
         return {'next': 'c'}
 
 
 class TestNodeC(Node):
+
+    __test__ = False
+
     async def process(self, context):
         return {'done': True}
 
 
 class TestNodeD(Node):
+
+    __test__ = False
+
     async def process(self, context):
         return {'done': True}
 

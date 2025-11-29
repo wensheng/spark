@@ -24,8 +24,14 @@ from spark.nodes.base import (
     wrap_sync_method,
 )
 from spark.nodes.config import NodeConfig
-from spark.nodes.capabilities import CapabilitySuite
-from spark.nodes.policies import RetryPolicy
+# Removed: from spark.nodes.capabilities import CapabilitySuite
+from spark.nodes.policies import ( # Import all policy classes
+    RetryPolicy,
+    TimeoutPolicy,
+    RateLimiterPolicy,
+    CircuitBreakerPolicy,
+    IdempotencyPolicy,
+)
 from spark.nodes.exceptions import ContextValidationError, NodeExecutionError, NodeTimeoutError
 from spark.nodes.types import EventSink, NodeMessage, NullEventSink
 from spark.nodes.channels import ChannelMessage
@@ -61,16 +67,15 @@ class Node(BaseNode):
         # Assign config attributes to self, with kwargs overriding config values
         self._assign_config_attributes(**kwargs)
 
+        # Apply policies (this modifies self._process)
+        self._apply_policies()
+
         # keep_in_state hook should run before other pre_process_hooks
         self.pre_process_hooks.insert(0, self.process_keep_in_state)
-
-        self._capabilities = CapabilitySuite.from_config(self.config)
-        # make sure the keep in state hook is the first one
 
         self._event_sink: EventSink = NullEventSink()
         self._active_run_id: str | None = None
         self._redact_keys: set[str] = set()
-        self._retry_policy: RetryPolicy | None = self._capabilities.retry.policy if self._capabilities.retry else None
         self.parents: list['Node'] = []
         self._stop_flag: bool = False
         self._last_process_attempts = 0
@@ -107,10 +112,36 @@ class Node(BaseNode):
         self.type = kwargs.get('type', getattr(self, 'type', self.__class__.__name__))
         self.description = kwargs.get('description', getattr(self, 'description', ''))
 
-        # Handle initial_state if present
-        # if hasattr(self.config, 'initial_state') and self.config.initial_state:
-        #    for key, value in self.config.initial_state.items():
-        #        setattr(self._state, key, value)
+    def _apply_policies(self) -> None:
+        """
+        Apply configured policies to wrap the node's _process method.
+        Policies are applied in a specific order:
+        Idempotency -> RateLimiter -> CircuitBreaker -> Timeout -> Retry
+        This order ensures that idempotency is checked first, then rate limits,
+        then circuit breakers, then timeouts, and finally retries.
+        """
+        # Apply policies in a sensible order (e.g., idempotency -> rate_limit -> circuit_breaker -> timeout -> retry)
+        # Each policy's __call__ method returns the node with its _process method wrapped.
+        
+        # Idempotency is typically very early to avoid unnecessary work.
+        if self.config.idempotency:
+            self.config.idempotency(self)
+        
+        # Rate Limiting should happen before trying to execute (and potentially timeout/retry)
+        if self.config.rate_limiter:
+            self.config.rate_limiter(self)
+            
+        # Circuit Breaker should check before execution
+        if self.config.circuit_breaker:
+            self.config.circuit_breaker(self)
+            
+        # Timeout wraps the execution
+        if self.config.timeout:
+            self.config.timeout(self)
+            
+        # Retry wraps the outermost execution attempt logic
+        if self.config.retry:
+            self.config.retry(self)
 
     def process_keep_in_state(self, context: ExecutionContext) -> None:
         """Process the keep in state."""
@@ -146,8 +177,9 @@ class Node(BaseNode):
             try:
                 node_message = payload if isinstance(payload, NodeMessage) else NodeMessage(content=payload)
                 context = self._prepare_context(node_message)
-                result = await self._process(context)
+                result = await self._process(context) # This _process is now the wrapped version
                 result = await self._maybe_collect_human_input(context, result)
+
                 context.outputs = result
 
                 # Store outputs and snapshot
@@ -348,204 +380,58 @@ class Node(BaseNode):
             return run_id
         return uuid4().hex
 
-    def _clone_mapping(self, value: Mapping[str, Any]) -> Mapping[str, Any]:
-        """Best-effort deep clone for cached/idempotent payloads."""
-        try:
-            return copy.deepcopy(value)
-        except Exception:
-            return dict(value)
-
-    def _result_mapping_for_capabilities(self, result: Any) -> Mapping[str, Any]:
-        """Extract a mapping payload used by capabilities like idempotency."""
-        if isinstance(result, NodeMessage):
-            content = result.content
-            if isinstance(content, Mapping):
-                return dict(content)
-            return {}
-        if isinstance(result, Mapping):
-            return dict(result)
-        return {}
-
-    def _resolve_idempotency_flag(self, context: ExecutionContext, result: Any = None) -> Any | None:
-        """Allow nodes to surface custom idempotency flags."""
-        if isinstance(result, NodeMessage):
-            extras = getattr(result, 'extras', None)
-            if isinstance(extras, dict) and 'idempotency_flag' in extras:
-                return extras['idempotency_flag']
-        state_flag = None
-        try:
-            state_flag = context.state.get('idempotency_flag')
-        except AttributeError:
-            state_flag = None
-        return state_flag
-
+    # Simplified _process method
     async def _process(self, context: ExecutionContext) -> Any:  # type: ignore[override]
-        """Execute the node with capability orchestration (retry, timeout, etc.)."""
+        """
+        Execute the node's core processing logic.
+        Policy orchestration (retry, timeout, etc.) is now handled by wrappers
+        applied during node initialization. This method now primarily performs
+        observability state refreshing, context validation, and then delegates
+        to the BaseNode's _process (which calls the user's process method).
+        """
         self._refresh_observability_state()
         self._validate_context_contract(context)
-
+        
+        # The actual policy logic is now in the wrappers that mutated self._process
+        # So we just call the base class's _process, which will eventually call Node.process()
+        # The run_id logic and error emission are left in the wrapped _process
+        # but the core resilience logic is outside in the policy wrappers.
+        
         run_id = self._derive_run_id(context)
         previous_run_id = self._active_run_id
         self._active_run_id = run_id
-        capabilities = self._capabilities
-        base_process = super()._process
-        attempt_index = 0
-        metadata = context.metadata
-
-        async def invoke(ctx: ExecutionContext) -> Any:
-            return await self._await_stage(base_process(ctx), 'process')
-
+        
         try:
-            while True:
-                self._last_process_attempts = attempt_index + 1
-                metadata.mark_started(attempt_index + 1)
-                attempt_state = await capabilities.before_attempt(context, attempt_index)
-                replay = attempt_state.idempotency
-                reused = bool(replay and replay.reused and replay.output is not None)
-                if reused and replay and replay.snapshot:
-                    try:
-                        context.state.update(replay.snapshot)
-                    except Exception:
-                        pass
-                try:
-                    if reused and replay and replay.output is not None:
-                        result = self._clone_mapping(replay.output)
-                        flag = replay.flag
-                    else:
-                        result = await capabilities.execute(self, invoke, context)
-                        flag = self._resolve_idempotency_flag(context, result)
-
-                    metadata.mark_finished()
-                    await capabilities.after_success(
-                        context,
-                        self._result_mapping_for_capabilities(result),
-                        flag,
-                        attempt_state,
-                        reused=reused,
-                    )
-                    await self._emit_stage_done(
-                        run_id,
-                        'process',
-                        metadata.duration or 0.0,
-                        result=result,
-                        metadata={
-                            'attempt': metadata.attempt,
-                            'attempts': attempt_index + 1,
-                            'reused': reused,
-                        },
-                    )
-                    return result
-                except asyncio.CancelledError:
-                    metadata.mark_finished()
-                    await capabilities.after_failure(attempt_state)
-                    raise
-                except Exception as exc:
-                    metadata.mark_finished()
-                    await capabilities.after_failure(attempt_state)
-                    should_retry = capabilities.should_retry(exc, attempt_index)
-                    decision = 'retry' if should_retry else 'abort'
-                    await self._emit_node_error(
-                        run_id,
-                        'process',
-                        exc,
-                        decision,
-                        duration=metadata.duration,
-                        attempts=attempt_index + 1,
-                    )
-                    if not should_retry:
-                        retry_cap = self._capabilities.retry
-                        if (
-                            retry_cap is not None
-                            and retry_cap.policy.is_retryable_exception(exc)
-                            and not retry_cap.policy.allows_retry(attempt_index)
-                        ):
-                            raise NodeExecutionError(
-                                kind='retry_exhausted',
-                                node=self,
-                                stage='process',
-                                original=exc,
-                            ) from exc
-                        raise
-                    delay = capabilities.retry_delay(attempt_index)
-                    attempt_index += 1
-                    if delay > 0:
-                        await asyncio.sleep(delay)
+            # Call the next layer down, which might be another policy wrapper
+            # or BaseNode._process if all policies have been applied.
+            result = await super()._process(context)
+            # Emit success event if no policy wrapper already did (e.g., for idempotency replay)
+            await self._emit_stage_done(
+                run_id,
+                'process',
+                (time.time() - context.metadata.started_at) if context.metadata.started_at else 0.0,
+                result=result,
+                metadata={'attempt': 1, 'attempts': 1, 'reused': False}, # Default, can be overridden by policy
+            )
+            return result
+        except Exception as exc:
+            # Emit error if no policy wrapper already did (e.g., retry exhaustion)
+            await self._emit_node_error(
+                run_id,
+                'process',
+                exc,
+                'abort', # Default decision, can be overridden by policy
+                duration=(time.time() - context.metadata.started_at) if context.metadata.started_at else None,
+                attempts=1,
+            )
+            raise
         finally:
             self._active_run_id = previous_run_id
-
-    async def _run_process_with_retry(self, data: Any = None) -> Any:
-
-        policy = self._retry_policy
-        attempt_number = 0
-        self._last_process_attempts = 0
-
-        while True:
-            try:
-                self._last_process_attempts = attempt_number + 1
-                process_coro = self._process(data)
-                return await self._await_stage(process_coro, 'process')
-            except Exception as exc:  # noqa: PERF203 - intentional broad catch for retry semantics
-                self._last_process_attempts = attempt_number + 1
-                if policy is None:
-                    raise
-                if not policy.is_retryable_exception(exc):
-                    raise
-                if not policy.allows_retry(attempt_number):
-                    self._last_process_attempts = attempt_number + 1
-                    raise NodeExecutionError(
-                        kind='retry_exhausted',
-                        node=self,
-                        stage='process',
-                        original=exc,
-                    ) from exc
-
-                delay = policy.get_delay(attempt_number)
-                attempt_number += 1
-                if delay > 0:
-                    await asyncio.sleep(delay)
-
-    def set_live(self) -> None:
-        """Run the node continuously until stopped"""
-        self.live = True
-
-    async def run(self, arg: Any = None) -> Any:
-        """Run the node continuously until stopped"""
-        if self.live:
-            await self.go()
-            return None
-        return await self.do(arg)
-
-    async def _maybe_collect_human_input(self, context: ExecutionContext, result: Any) -> Any:  # type: ignore[override]
-        policy = getattr(self, 'human_policy', None)
-        if policy is None:
-            return result
-        handler = getattr(policy, 'apply', None)
-        if handler is None:
-            handler = policy
-        updated = await _maybe_await(handler(self, context, result))
-        if updated is None:
-            return result
-        return updated
 
 
 class JoinNode(Node):
     """Barrier node that waits for multiple parents before executing.
-
-    Parameters:
-        mode: ``'all'`` waits for every configured predecessor before releasing,
-            ``'any'`` releases on the first arrival.
-        keys: Optional explicit identifiers matching upstream node ``name``
-            attributes. When omitted, identifiers are derived from the actual
-            parent nodes (preferring ``name`` and falling back to class name
-            plus object id).
-        reducer: Callable invoked with a list of contribution dictionaries and
-            expected to return a single merged dictionary that becomes the
-            join's input context.
-        trace_keys: Preferred keys searched in incoming payloads or parent
-            context to group contributions belonging to the same trace/run.
-            Defaults to ``('trace_id', '__trace_id__')``.
     """
-
     def __init__(
         self,
         *,
@@ -553,9 +439,10 @@ class JoinNode(Node):
         keys: list[str] | tuple[str, ...] | None = None,
         reducer: Callable[[list[dict]], dict] | None = None,
         trace_keys: tuple[str, ...] = ('trace_id', '__trace_id__'),
+        config: Optional[NodeConfig] = None, # Added config parameter
         **kwargs,
     ) -> None:
-        super().__init__(**kwargs)
+        super().__init__(config=config, **kwargs) # Pass config to super
         if mode not in {'all', 'any'}:
             raise ValueError("JoinNode mode must be 'all' or 'any'")
         self._mode = mode
@@ -700,17 +587,12 @@ class BatchProcessNode(Node):
         edges: Optional[list[Edge]] = None,
         *,
         failure_strategy: str = 'all_or_nothing',
+        config: Optional[NodeConfig] = None, # Pass config to super
         **kwargs,
     ) -> None:
-        super().__init__(edges=edges, **kwargs)
+        # Pass config to super, ensuring it's handled by Node.__init__
+        super().__init__(config=config, **kwargs)
         self._set_failure_strategy(failure_strategy)
-
-    async def process(self, context: ExecutionContext) -> Any:
-        """
-        This method is called in _process method to do pre-processing.
-        Subclasses do not need to implement this method if there is no pre-processing needed.
-        """
-        pass
 
     @property
     def failure_strategy(self) -> str:
@@ -825,7 +707,7 @@ class SequentialNode(BatchProcessNode):
         for item in items:
             try:
                 outcomes.append(await fn(item))
-            except Exception as exc:  # noqa: PERF203
+            except Exception as exc:  # noqa: PERF203 - intentional broad catch for retry semantics
                 if isinstance(exc, asyncio.CancelledError):
                     raise
                 outcomes.append(exc)
@@ -841,8 +723,7 @@ class BaseParallelNode(BatchProcessNode):
     """
 
     def __init__(self, max_workers: Optional[int] = None, **kwargs):
-        super().__init__(**kwargs)
-        self.max_workers = max_workers
+        super().__init__(max_workers=max_workers, **kwargs) # Ensure config is passed up from here too
 
 
 class ParallelNode(BaseParallelNode):

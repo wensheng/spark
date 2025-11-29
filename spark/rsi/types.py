@@ -195,6 +195,7 @@ class ValidationResult:
 
 class TestStatus(str, Enum):
     """Status of hypothesis test."""
+    __test__ = False
     PENDING = "pending"
     RUNNING = "running"
     PASSED = "passed"
@@ -206,6 +207,8 @@ class TestStatus(str, Enum):
 @dataclass
 class TestMetrics:
     """Performance metrics collected during testing."""
+
+    __test__ = False
     num_runs: int
     success_count: int
     failure_count: int
@@ -248,6 +251,7 @@ class ComparisonResult:
 @dataclass
 class TestResult:
     """Complete test result for a hypothesis."""
+    __test__ = False
     hypothesis_id: str
     test_id: str
     status: TestStatus

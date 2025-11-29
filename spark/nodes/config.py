@@ -18,18 +18,23 @@ else:  # pragma: no cover - runtime fallback for pydantic validation
 from spark.nodes.types import EventSink
 from spark.nodes.policies import (
     RetryPolicy,
+    TimeoutPolicy,
+    RateLimiterPolicy,
+    CircuitBreakerPolicy,
+    IdempotencyPolicy,
+    # Keep these if they are used as config objects within the Policy classes
+    # or if there's a reason NodeConfig needs to expose them directly for other purposes
+    # For now, remove them as they are encapsulated by the Policy objects
     Rate,
-    RateLimiterRegistry,
     CircuitBreaker,
-    CircuitBreakerRegistry,
     IdempotencyConfig,
 )
 
 
 class NodeConfig(BaseModel):
     """
-    Configuration for a Node instance, capturing timeouts, retry policy,
-    redaction, sink, and rate/circuit breaker options.
+    Configuration for a Node instance, capturing policies for retry, timeout,
+    rate limiting, circuit breaking, and idempotency, along with other settings.
     """
 
     model_config = ConfigDict(extra="ignore", arbitrary_types_allowed=True)
@@ -39,22 +44,21 @@ class NodeConfig(BaseModel):
     description: str | None = None
 
     live: bool = False
-    """Whether the node is live, live nodes run continuously until stopped"""
+    """Whether the node is live; live nodes run continuously until stopped"""
 
     initial_state: NodeState = Field(default_factory=default_node_state)
-    timeout: float | None = None
-    retry: RetryPolicy | int | None = None
+    
+    # Policies for resilience and control
+    retry: RetryPolicy | None = None # Keep as is
+    timeout: TimeoutPolicy | None = None # Changed from float to TimeoutPolicy
+    rate_limiter: RateLimiterPolicy | None = None # New field, replaces rate_limit, resource_key, registry
+    circuit_breaker: CircuitBreakerPolicy | None = None # New field, replaces breaker_key, circuit_breaker, registry
+    idempotency: IdempotencyPolicy | None = None # Changed from IdempotencyConfig to IdempotencyPolicy
+
     redact_keys: Set[str] | None = None
     event_sink: EventSink | None = None
-    # ctx_mode: str = "shared"
-    resource_key: str | None = None
-    rate_limit: Rate | None = None
-    rate_limiter_registry: RateLimiterRegistry | None = None
-    breaker_key: str | None = None
-    circuit_breaker: CircuitBreaker | None = None
-    circuit_breaker_registry: CircuitBreakerRegistry | None = None
+    
     validators: tuple[Callable[[Mapping[str, Any]], None | str], ...] = ()
-    idempotency: IdempotencyConfig | None = None
     human_policy: HumanInLoopPolicy | None = None
 
     pre_process_hooks: list[Callable[[ExecutionContext], None]] = Field(default_factory=list)
