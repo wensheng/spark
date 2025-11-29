@@ -3,12 +3,11 @@ Policies for the Spark framework.
 """
 
 import asyncio
-import functools
 import time
 from collections import deque
 from collections.abc import Hashable, Mapping
 from dataclasses import dataclass, field
-from typing import Any, Callable, Literal, Protocol, runtime_checkable
+from typing import Any, Awaitable, Callable, Literal, Protocol, runtime_checkable
 
 from spark.nodes.types import ExecutionContext, NodeMessage, _safe_copy
 from spark.nodes.base import BaseNode
@@ -17,6 +16,36 @@ from spark.nodes.exceptions import (
     NodeExecutionError,
     NodeTimeoutError,
 )
+
+
+ProcessFn = Callable[[ExecutionContext], Awaitable[Any]]
+ProcessWrapper = Callable[[ExecutionContext, ProcessFn], Awaitable[Any]]
+
+
+@runtime_checkable
+class SupportsProcessWrapper(Protocol):
+    """Protocol for policies that expose a wrapper builder instead of mutating nodes."""
+
+    def build_wrapper(self, node: BaseNode) -> ProcessWrapper:  # pragma: no cover - interface
+        """Return a coroutine wrapper that applies this policy around a process function."""
+
+
+def compose_process_wrappers(base_process: ProcessFn, wrappers: list[ProcessWrapper]) -> ProcessFn:
+    """Compose a sequence of process wrappers around the provided base process."""
+    wrapped = base_process
+    for wrapper in wrappers:
+        previous = wrapped
+
+        async def wrapped_process(
+            context: ExecutionContext,
+            *,
+            _wrapper=wrapper,
+            _previous=previous,
+        ) -> Any:
+            return await _wrapper(context, _previous)
+
+        wrapped = wrapped_process
+    return wrapped
 
 
 @dataclass(frozen=True, slots=True)
@@ -249,16 +278,14 @@ class RetryPolicy:
             delay = float(self.jitter(delay))
         return max(delay, 0.0)
 
-    def __call__(self, node: BaseNode) -> BaseNode:
-        """Apply retry policy to a node by wrapping its execution with retry logic."""
-        original_process = node._process # <--- Changed to wrap _process
+    def build_wrapper(self, node: BaseNode) -> ProcessWrapper:
+        """Return a coroutine wrapper that retries failed process calls."""
 
-        @functools.wraps(original_process)
-        async def new_process(context: ExecutionContext) -> Any: # <--- Takes context
+        async def wrapper(context: ExecutionContext, call_next: ProcessFn) -> Any:
             attempt_number = 0
             while True:
                 try:
-                    return await original_process(context)
+                    return await call_next(context)
                 except Exception as exc:
                     if not self.is_retryable_exception(exc):
                         raise
@@ -266,7 +293,7 @@ class RetryPolicy:
                         raise NodeExecutionError(
                             kind="retry_exhausted",
                             node=node,
-                            stage="_process", # <--- Stage updated
+                            stage="_process",
                             original=exc,
                             ctx_snapshot=context.snapshot(),
                         ) from exc
@@ -276,8 +303,11 @@ class RetryPolicy:
                     if delay > 0:
                         await asyncio.sleep(delay)
 
-        node._process = new_process # <--- wraps _process
-        return node
+        return wrapper
+
+    def __call__(self, node: BaseNode) -> BaseNode:
+        """Configuration objects should not be invoked directly."""
+        raise TypeError("RetryPolicy no longer mutates nodes directly; assign it via NodeConfig(retry=...) instead.")
 
 
 @dataclass(slots=True)
@@ -286,23 +316,26 @@ class TimeoutPolicy:
 
     seconds: float
 
-    def __call__(self, node: BaseNode) -> BaseNode:
-        """Apply timeout policy to a node by wrapping its execution with timeout logic."""
-        original_process = node._process # <--- Changed to wrap _process
+    def build_wrapper(self, node: BaseNode) -> ProcessWrapper:
+        """Return a coroutine wrapper that enforces the timeout without mutating the node."""
 
-        @functools.wraps(original_process)
-        async def new_process(context: ExecutionContext) -> Any: # <--- Takes context
+        async def wrapper(context: ExecutionContext, call_next: ProcessFn) -> Any:
             try:
-                return await asyncio.wait_for(original_process(context), self.seconds)
+                return await asyncio.wait_for(call_next(context), self.seconds)
             except asyncio.TimeoutError as exc:
                 raise NodeTimeoutError(
                     node=node,
-                    stage="_process", # <--- Stage updated
+                    stage="_process",
                     timeout=self.seconds,
                 ) from exc
 
-        node._process = new_process # <--- wraps _process
-        return node
+        return wrapper
+
+    def __call__(self, node: BaseNode) -> BaseNode:
+        """Configuration objects should not be invoked directly."""
+        raise TypeError(
+            "TimeoutPolicy no longer mutates nodes directly; assign it via NodeConfig(timeout=...) instead."
+        )
 
 
 @dataclass(slots=True)
@@ -313,20 +346,23 @@ class RateLimiterPolicy:
     rate: Rate
     registry: RateLimiterRegistry = field(default_factory=lambda: _DEFAULT_RATE_REGISTRY)
 
-    def __call__(self, node: BaseNode) -> BaseNode:
-        """Apply rate limiting policy to a node by wrapping its execution with rate limiting logic."""
-        original_process = node._process # <--- Changed to wrap _process
+    def build_wrapper(self, node: BaseNode) -> ProcessWrapper:
+        """Return a coroutine wrapper that enforces rate limits."""
 
-        @functools.wraps(original_process)
-        async def new_process(context: ExecutionContext) -> Any: # <--- Takes context
+        async def wrapper(context: ExecutionContext, call_next: ProcessFn) -> Any:
             bucket = await self.registry.acquire(self.resource_key, self.rate)
             try:
-                return await original_process(context)
+                return await call_next(context)
             finally:
                 bucket.release()
 
-        node._process = new_process # <--- wraps _process
-        return node
+        return wrapper
+
+    def __call__(self, node: BaseNode) -> BaseNode:
+        """Configuration objects should not be invoked directly."""
+        raise TypeError(
+            "RateLimiterPolicy no longer mutates nodes directly; assign it via NodeConfig(rate_limiter=...) instead."
+        )
 
 
 @dataclass(slots=True)
@@ -337,12 +373,10 @@ class CircuitBreakerPolicy:
     circuit_breaker: CircuitBreaker
     registry: CircuitBreakerRegistry = field(default_factory=lambda: _DEFAULT_BREAKER_REGISTRY)
 
-    def __call__(self, node: BaseNode) -> BaseNode:
-        """Apply circuit breaker policy to a node by wrapping its execution with circuit breaker logic."""
-        original_process = node._process # <--- Changed to wrap _process
+    def build_wrapper(self, node: BaseNode) -> ProcessWrapper:
+        """Return a coroutine wrapper that enforces the circuit breaker."""
 
-        @functools.wraps(original_process)
-        async def new_process(context: ExecutionContext) -> Any: # <--- Takes context
+        async def wrapper(context: ExecutionContext, call_next: ProcessFn) -> Any:
             state = await self.registry.get(self.breaker_key, self.circuit_breaker)
             try:
                 await state.allow()
@@ -350,21 +384,26 @@ class CircuitBreakerPolicy:
                 raise NodeExecutionError(
                     kind="circuit_open",
                     node=node,
-                    stage="_process", # <--- Stage updated
+                    stage="_process",
                     original=exc,
                     ctx_snapshot=context.snapshot(),
                 ) from exc
 
             try:
-                result = await original_process(context)
+                result = await call_next(context)
                 await state.record_success()
                 return result
-            except Exception: # Capture all exceptions to record failure
+            except Exception:  # Capture all exceptions to record failure
                 await state.record_failure()
                 raise
 
-        node._process = new_process # <--- wraps _process
-        return node
+        return wrapper
+
+    def __call__(self, node: BaseNode) -> BaseNode:
+        """Configuration objects should not be invoked directly."""
+        raise TypeError(
+            "CircuitBreakerPolicy no longer mutates nodes directly; assign it via NodeConfig(circuit_breaker=...) instead."
+        )
 
 
 @dataclass(slots=True)
@@ -447,43 +486,37 @@ class IdempotencyPolicy:
     """Policy for ensuring operation idempotency through replay detection."""
 
     config: IdempotencyConfig
-    
-    def __call__(self, node: BaseNode) -> BaseNode:
-        """Apply idempotency policy to a node by wrapping its execution."""
-        original_process = node._process
 
-        @functools.wraps(original_process)
-        async def new_process(context: ExecutionContext) -> Any:
+    def build_wrapper(self, node: BaseNode) -> ProcessWrapper:
+        """Return a coroutine wrapper that enforces idempotency without mutating the node."""
+
+        async def wrapper(context: ExecutionContext, call_next: ProcessFn) -> Any:
             key = self._resolve_key(context)
-            
-            if key is None:
-                # Cannot apply idempotency without a key; proceed with original process
-                return await original_process(context) 
 
-            # Check for existing idempotency record before attempting operation.
+            if key is None:
+                return await call_next(context)
+
             record = await self.config.store.get(key)
             if record is not None:
-                # Operation was already performed, replay the result
                 return record.resolve_result
 
-            # If no record, execute the original process
-            try:
-                result = await original_process(context)
-                # Store idempotency record after successful operation completion.
-                record = IdempotencyRecord(
-                    process_result=_safe_copy(result),
-                    resolve_result=_safe_copy(result), 
-                    ctx_snapshot=_safe_copy(context.snapshot()),
-                )
-                await self.config.store.set(key, record)
-                return result
-            except Exception:
-                # On failure, do not store an idempotency record, and re-raise the exception.
-                raise
+            result = await call_next(context)
+            record = IdempotencyRecord(
+                process_result=_safe_copy(result),
+                resolve_result=_safe_copy(result),
+                ctx_snapshot=_safe_copy(context.snapshot()),
+            )
+            await self.config.store.set(key, record)
+            return result
 
-        node._process = new_process
-        return node
-    
+        return wrapper
+
+    def __call__(self, node: BaseNode) -> BaseNode:
+        """Configuration objects should not be invoked directly."""
+        raise TypeError(
+            "IdempotencyPolicy no longer mutates nodes directly; assign it via NodeConfig(idempotency=...) instead."
+        )
+
     def _resolve_key(self, context: ExecutionContext) -> Hashable | None:
         """Resolve the idempotency key from context using configured resolver or field."""
         resolver = self.config.key_resolver

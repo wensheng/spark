@@ -31,6 +31,7 @@ from spark.nodes.policies import ( # Import all policy classes
     RateLimiterPolicy,
     CircuitBreakerPolicy,
     IdempotencyPolicy,
+    compose_process_wrappers,
 )
 from spark.nodes.exceptions import ContextValidationError, NodeExecutionError, NodeTimeoutError
 from spark.nodes.types import EventSink, NodeMessage, NullEventSink
@@ -120,28 +121,37 @@ class Node(BaseNode):
         This order ensures that idempotency is checked first, then rate limits,
         then circuit breakers, then timeouts, and finally retries.
         """
-        # Apply policies in a sensible order (e.g., idempotency -> rate_limit -> circuit_breaker -> timeout -> retry)
-        # Each policy's __call__ method returns the node with its _process method wrapped.
-        
+        process_wrappers = []
+
+        def _add_wrapper(policy: object) -> None:
+            builder = getattr(policy, "build_wrapper", None)
+            if callable(builder):
+                process_wrappers.append(builder(self))
+            elif callable(policy):
+                policy(self)  # type: ignore[misc]
+
         # Idempotency is typically very early to avoid unnecessary work.
         if self.config.idempotency:
-            self.config.idempotency(self)
-        
+            _add_wrapper(self.config.idempotency)
+
         # Rate Limiting should happen before trying to execute (and potentially timeout/retry)
         if self.config.rate_limiter:
-            self.config.rate_limiter(self)
-            
+            _add_wrapper(self.config.rate_limiter)
+
         # Circuit Breaker should check before execution
         if self.config.circuit_breaker:
-            self.config.circuit_breaker(self)
-            
-        # Timeout wraps the execution
+            _add_wrapper(self.config.circuit_breaker)
+
+        # Timeout wraps the execution; prefer wrapper composition over mutating nodes.
         if self.config.timeout:
-            self.config.timeout(self)
-            
+            _add_wrapper(self.config.timeout)
+
         # Retry wraps the outermost execution attempt logic
         if self.config.retry:
-            self.config.retry(self)
+            _add_wrapper(self.config.retry)
+
+        if process_wrappers:
+            self._process = compose_process_wrappers(self._process, process_wrappers)
 
     def process_keep_in_state(self, context: ExecutionContext) -> None:
         """Process the keep in state."""
