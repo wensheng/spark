@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import datetime as _dt
+from datetime import datetime, timezone
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Iterable, Sequence
@@ -44,9 +44,7 @@ class ArtifactRecord(BaseModel):
     artifact_type: str = Field(default='generic', description='Type of artifact (diff, report, dataset, etc.)')
     name: str = Field(default='artifact', description='Human-readable label.')
     description: str | None = Field(default=None, description='Optional description or summary.')
-    created_at: _dt.datetime = Field(
-        default_factory=lambda: _dt.datetime.utcnow().replace(tzinfo=_dt.timezone.utc)
-    )
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     node_id: str | None = Field(default=None, description='Producer node identifier.')
     task_id: str | None = Field(default=None, description='Scheduler task identifier.')
     campaign_id: str | None = Field(default=None, description='Campaign identifier if applicable.')

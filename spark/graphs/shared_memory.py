@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import datetime as _dt
+from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable, Iterable, Sequence
@@ -64,7 +64,7 @@ class MemoryRecord(BaseModel):
     payload: dict[str, Any] = Field(default_factory=dict)
     references: list[MemoryReference] = Field(default_factory=list)
     access_policy: MemoryAccessPolicy = Field(default_factory=MemoryAccessPolicy)
-    created_at: _dt.datetime = Field(default_factory=lambda: _dt.datetime.utcnow().replace(tzinfo=_dt.timezone.utc))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 def _normalize_references(references: Iterable[MemoryReference | dict[str, Any]] | None) -> list[MemoryReference]:

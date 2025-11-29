@@ -428,6 +428,29 @@ class Node(BaseNode):
         finally:
             self._active_run_id = previous_run_id
 
+    def set_live(self) -> None:
+        """Run the node continuously until stopped"""
+        self.live = True
+
+    async def run(self, arg: Any = None) -> Any:
+        """Run the node continuously until stopped"""
+        if self.live:
+            await self.go()
+            return None
+        return await self.do(arg)
+
+    async def _maybe_collect_human_input(self, context: ExecutionContext, result: Any) -> Any:  # type: ignore[override]
+        policy = getattr(self, 'human_policy', None)
+        if policy is None:
+            return result
+        handler = getattr(policy, 'apply', None)
+        if handler is None:
+            handler = policy
+        updated = await _maybe_await(handler(self, context, result))
+        if updated is None:
+            return result
+        return updated
+
 
 class JoinNode(Node):
     """Barrier node that waits for multiple parents before executing.
