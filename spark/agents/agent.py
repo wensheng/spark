@@ -73,6 +73,11 @@ class ConfigurationError(AgentError):
     """Raised when agent configuration is invalid."""
 
 
+def has_tool_action(output: Any) -> bool:
+    """Check if the output contains a tool action."""
+    return isinstance(output, dict) and 'action' in output
+
+
 class Agent(Node):
     """Base class for all Spark agents with LLM orchestration helpers."""
 
@@ -222,9 +227,19 @@ class Agent(Node):
 
     def _prepare_context(self, inputs: NodeMessage) -> ExecutionContext[AgentState]:
         """Prepare the execution context from inputs."""
+
+        # TODO: this can be removed as it is no different from the same method in BaseNode
+
         if not isinstance(inputs, NodeMessage):
             raise TypeError("inputs must be a Message")
-        return ExecutionContext(inputs=inputs, state=self._state)
+        context = ExecutionContext(inputs=inputs, state=self._state)
+
+        # Attach graph state if available
+        graph_state = getattr(self, '_graph_state', None)
+        if graph_state is not None:
+            context.graph_state = graph_state
+
+        return context
 
     def _extract_tool_call_metadata(self, tool_call: dict[str, Any]) -> tuple[str | None, str | None, dict[str, Any]]:
         """Normalize tool call payloads across providers."""
@@ -658,6 +673,9 @@ class Agent(Node):
         """
         if context is None:
             context = ExecutionContext()
+        return await self.work(context)
+
+    async def work(self, context: ExecutionContext[AgentState]) -> NodeMessage:
         if self.human_policy_manager:
             self.human_policy_manager.ensure_not_stopped()
         if self.budget_manager:
@@ -933,8 +951,11 @@ class Agent(Node):
             template_context['inputs'] = inputs
 
         # Add state if available (makes state accessible to templates)
-        if context and context.state:
-            template_context['state'] = context.state
+        if context:
+            if context.state:
+                template_context['state'] = context.state
+            if context.graph_state:
+                template_context['graph_state'] = context.graph_state
 
         # Add any custom fields from state directly to context for convenience
         # This allows templates to use {{ history }} instead of {{ state.history }}
