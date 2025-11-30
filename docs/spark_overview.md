@@ -11,11 +11,11 @@ Spark goes beyond simple chains, offering a complete ecosystem for building, obs
 ### 1. Nodes (The Actors)
 Nodes are the fundamental processing units. Each node is an independent actor that processes inputs and produces outputs.
 *   **BaseNode**: The abstract foundation.
-*   **Node**: Standard implementation with built-in **Capabilities** (Retry, Timeout, Circuit Breaker, Rate Limit).
+*   **Node**: Standard implementation supporting **Policies** (Retry, Timeout, Circuit Breaker, Rate Limit) via `NodeConfig`.
 *   **Agent**: A specialized node for LLM interaction (see below).
-*   **HumanNode**: Pauses execution for human-in-the-loop feedback.
 *   **SubgraphNode**: Encapsulates an entire graph as a single node for modular composition.
-*   **BatchProcessNodes**: For parallel processing (Threaded, Multiprocess, Async).
+*   **BatchProcessNodes**: For batch processing (Sequential, Parallel, Multi-Threaded, Multi-Process).
+*   **JoinNode**: Barrier node that waits for multiple parents before executing.
 
 ### 2. Graphs (The Orchestrators)
 Graphs define the topology of your workflow.
@@ -27,7 +27,7 @@ Graphs define the topology of your workflow.
 
 ### 3. Agents (The Intelligence)
 Agents are specialized nodes designed for autonomous reasoning and tool use.
-*   **Memory**: Configurable memory managers with policies (WindowBuffer, TokenBuffer, etc.).
+*   **Memory**: Configurable memory managers with policies (RollingWindow, Summarize, Custom).
 *   **Strategies**: Pluggable reasoning engines:
     *   **ReAct**: Reason + Act loop (Think -> Tool -> Observe).
     *   **Chain-of-Thought**: Step-by-step reasoning before answering.
@@ -66,7 +66,7 @@ Write code once, run on any provider.
 
 ## Ecosystem Features
 
-*   **Resilience**: Declarative capabilities like `RetryCapability`, `CircuitBreakerCapability`, and `IdempotencyCapability` can be attached to any node.
+*   **Resilience**: Declarative policies like `RetryPolicy`, `CircuitBreakerPolicy`, and `IdempotencyPolicy` can be configured via `NodeConfig`.
 *   **Telemetry**: Deep integration with telemetry systems for tracing execution paths, latencies, and errors.
 *   **Distributed Execution**: `RpcNode` and `RemoteRpcProxyNode` allow graphs to span across network boundaries, enabling microservices architectures.
 
