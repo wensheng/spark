@@ -13,27 +13,32 @@ Run:
     # or
     python -m examples.e009_reasoning_strategies
 """
+import math
 
 from spark.agents import Agent, AgentConfig, ReActStrategy, ChainOfThoughtStrategy, NoOpStrategy
-from spark.models.echo import EchoModel
+from spark.models.openai import OpenAIModel
 from spark.tools.decorator import tool
 from spark.nodes.types import NodeMessage
 from spark.utils import arun
 
 
-# Define some example tools
+SAFE_GLOBALS = math.__dict__.copy()
+SAFE_GLOBALS['__builtins__'] = {}
+
+
 @tool
 def calculate(expression: str) -> str:
     """Evaluate a mathematical expression.
+    functions inside math module such as sin, log, sqrt, etc., are available without 'math.' prefix.
 
     Args:
-        expression: A Python mathematical expression to evaluate
+        expression: A Python mathematical expression (including functions from the math module) to evaluate
 
     Returns:
         The result of the calculation
     """
     try:
-        result = eval(expression, {"__builtins__": {}}, {})
+        result = eval(expression, SAFE_GLOBALS, {})
         return f"Result: {result}"
     except Exception as e:
         return f"Error: {str(e)}"
@@ -60,7 +65,7 @@ def get_weather(city: str) -> str:
 
 
 # Example 1: Simple agent with NoOpStrategy (default)
-def example_no_strategy():
+async def example_no_strategy():
     """Example of a simple agent without structured reasoning."""
     print("\n" + "=" * 60)
     print("Example 1: NoOpStrategy (Default - Simple Agent)")
@@ -68,7 +73,7 @@ def example_no_strategy():
 
     # NoOpStrategy is used by default when no strategy is specified
     config = AgentConfig(
-        model=EchoModel(),
+        model=OpenAIModel(model_id='gpt-5-mini'),
         name="SimpleAgent",
         system_prompt="You are a helpful assistant.",
         tools=[calculate],
@@ -79,20 +84,22 @@ def example_no_strategy():
 
     print(f"Strategy: {type(agent.reasoning_strategy).__name__}")
     print("Use case: Simple question-answering, straightforward tasks")
+    answer = await agent.run("what is square root of 199")
+    print(f"Sample response: {answer.content}")
+    print('tool traces:', agent.state['tool_traces'])
     print("History tracking: None")
     print()
 
 
 # Example 2: Agent with ReActStrategy
-def example_react_strategy():
+async def example_react_strategy():
     """Example of an agent using ReAct (Reasoning + Acting) pattern."""
     print("\n" + "=" * 60)
     print("Example 2: ReActStrategy (Reasoning + Acting)")
     print("=" * 60)
 
     config = AgentConfig(
-        model=EchoModel(),
-        name="ReActAgent",
+        model=OpenAIModel(model_id='gpt-5-mini'),
         system_prompt="""You are an agent that uses the ReAct pattern.
 For each step, provide:
 - thought: Your reasoning about what to do
@@ -125,6 +132,9 @@ When you have the final answer:
     print("Use case: Complex multi-step problems requiring tool use")
     print("History tracking: Thought -> Action -> Observation chain")
     print("Verbose: Prints progress as agent reasons")
+    answer = await agent.run('what is the value of Tokyo temperature squared')
+    print('Answer:', answer.content)
+    print('Tool traces', agent.get_tool_traces())
     print()
 
     # The agent will maintain history in state['history']
@@ -145,7 +155,7 @@ def example_cot_strategy():
     print("=" * 60)
 
     config = AgentConfig(
-        model=EchoModel(),
+        model=OpenAIModel(model_id='gpt-5-mini'),
         name="CoTAgent",
         system_prompt="""You are an agent that thinks step-by-step.
 Provide your reasoning as a series of steps, then give your final answer.
@@ -213,7 +223,7 @@ def example_custom_strategy():
             return state.get('debug_log', [])
 
     config = AgentConfig(
-        model=EchoModel(),
+        model=OpenAIModel(model_id='gpt-5-mini'),
         name="DebugAgent",
         reasoning_strategy=DebugStrategy(),
     )
@@ -244,7 +254,7 @@ def example_strategy_comparison():
 
     for name, strategy in strategies:
         config = AgentConfig(
-            model=EchoModel(),
+            model=OpenAIModel(model_id='gpt-5-mini'),
             name=f"Agent-{name}",
             reasoning_strategy=strategy,
         )
@@ -320,7 +330,7 @@ def example_strategy_guidelines():
     print()
 
 
-def main():
+async def main():
     """Run all examples."""
     print("\n" + "=" * 60)
     print("SPARK AGENT REASONING STRATEGIES")
@@ -332,8 +342,8 @@ def main():
     print()
 
     # Run examples
-    example_no_strategy()
-    example_react_strategy()
+    await example_no_strategy()
+    await example_react_strategy()
     example_cot_strategy()
     example_custom_strategy()
     example_strategy_comparison()
@@ -359,4 +369,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    arun(main())
