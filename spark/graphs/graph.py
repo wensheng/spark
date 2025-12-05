@@ -402,10 +402,11 @@ class Graph(BaseGraph):
             all_nodes = self.nodes
             self._running_nodes = all_nodes  # Store for later stopping
 
-            # Send initial inputs to the start node's queue
-            await self.start.mailbox.send(
-                ChannelMessage(payload=inputs, metadata={'source': 'graph', 'kind': 'initial'})
-            )
+            # Send initial inputs to the start node's queue if it exists
+            if self.start:
+                await self.start.mailbox.send(
+                    ChannelMessage(payload=inputs, metadata={'source': 'graph', 'kind': 'initial'})
+                )
 
             # Create jobs for all nodes' go() methods
             for node in all_nodes:
@@ -435,8 +436,10 @@ class Graph(BaseGraph):
 
         # For regular tasks, track nodes for timeout handling
         self._running_nodes = self.nodes
+        if not self.start and not is_long_lived_task:
+            raise ValueError("Graph has no start node and task is not LONG_RUNNING")
         try:
-            active_nodes: set[BaseNode] = {self.start}
+            active_nodes: set[BaseNode] = {self.start} if self.start else set()
             initial_run = True
             iteration_index = 0
 
