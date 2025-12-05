@@ -17,7 +17,7 @@ class BaseGraph(ABC):
     How the nodes are connected are actually defined outside of the graph.
     """
 
-    start: BaseNode
+    start: BaseNode | None = None
 
     def __init__(self, *edges: Edge, **kwargs) -> None:
         """Initialize the graph with edges and optional parameters.
@@ -29,7 +29,10 @@ class BaseGraph(ABC):
         """
         self.id = kwargs.get('id', uuid4().hex)
         self.edges: list[Edge] = list(edges)
-        self.nodes: set[BaseNode] = self.get_nodes_from_edges(self.edges)
+        self.nodes: set[BaseNode] = set()
+        for node in self.get_nodes_from_edges(self.edges):
+            self.add_node(node)
+
         # Track whether an explicit end node was provided so inference doesn't override it later.
         self._end_node_explicit: bool = kwargs.get('end') is not None
         self.end_node: BaseNode | None = kwargs.get('end') if self._end_node_explicit else None
@@ -42,9 +45,6 @@ class BaseGraph(ABC):
         if kwargs.get('start') and isinstance(kwargs.get('start'), BaseNode):
             # this can override the start node from *edges
             start_node = kwargs.get('start')
-
-        if not start_node:
-            raise ValueError("Graph has no start node")
 
         self.start = start_node
 
@@ -97,12 +97,27 @@ class BaseGraph(ABC):
         self.edges = discovered_edges
         self._infer_end_node()
 
+    def add_node(self, node: BaseNode) -> None:
+        """Add a node to the graph."""
+        self.nodes.add(node)
+
+        event_bus = getattr(self, "event_bus", None)
+        if event_bus:
+            attach = getattr(node, "attach_event_bus", None)
+            if callable(attach):
+                attach(event_bus)
+
+        state = getattr(self, "state", None)
+        if state:
+            setattr(node, "_graph_state", state)
+
     def add(self, *edges: Edge) -> None:
         """Add edges to the graph."""
         if not edges:
             return
         self.edges.extend(edges)
-        self.nodes = self.get_nodes_from_edges(self.edges)
+        for node in self.get_nodes_from_edges(list(edges)):
+            self.add_node(node)
         self._infer_end_node()
 
     @abstractmethod
