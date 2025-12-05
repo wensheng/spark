@@ -188,17 +188,34 @@ class Node(BaseNode):
                 node_message = payload if isinstance(payload, NodeMessage) else NodeMessage(content=payload)
                 context = self._prepare_context(node_message)
                 result = await self._process(context) # This _process is now the wrapped version
-                result = await self._maybe_collect_human_input(context, result)
 
-                context.outputs = result
+                if inspect.isasyncgen(result):
+                    # Handle streaming/generator output
+                    async for item in result:
+                        if self._stop_flag:
+                            break
 
-                # Store outputs and snapshot
-                self.outputs = self._post_process(context)
-                self._record_snapshot(context)
+                        # Apply human policy per item
+                        item = await self._maybe_collect_human_input(context, item)
 
-                # Forward outputs to successor nodes
-                if not self._stop_flag:
-                    await self._forward_to_successors(self.outputs, message)
+                        context.outputs = item
+                        self.outputs = self._post_process(context)
+                        self._record_snapshot(context)
+
+                        # Forward each item to successors
+                        await self._forward_to_successors(self.outputs, message)
+                else:
+                    # Handle standard single output
+                    result = await self._maybe_collect_human_input(context, result)
+                    context.outputs = result
+
+                    # Store outputs and snapshot
+                    self.outputs = self._post_process(context)
+                    self._record_snapshot(context)
+
+                    # Forward outputs to successor nodes
+                    if not self._stop_flag:
+                        await self._forward_to_successors(self.outputs, message)
 
                 if message.ack:
                     await _maybe_await(message.ack())
