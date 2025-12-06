@@ -1,3 +1,8 @@
+---
+title: Telemetry
+parent: Architecture
+nav_order: 3
+---
 # Telemetry Architecture
 
 ## Overview

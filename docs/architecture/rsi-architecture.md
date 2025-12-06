@@ -1,3 +1,8 @@
+---
+title: RSI
+parent: Architecture
+nav_order: 5
+---
 # RSI (Recursive Self-Improvement) Architecture
 
 ## Overview

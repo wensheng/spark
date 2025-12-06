@@ -1,3 +1,8 @@
+---
+title: Agent System
+parent: Architecture
+nav_order: 3
+---
 # Agent System Architecture
 
 ## Overview

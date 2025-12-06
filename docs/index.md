@@ -1,3 +1,7 @@
+---
+title: Spark Documentation
+nav_order: 1
+---
 # Spark: ADK (AI Development Kit) Overview
 
 ## What is Spark?

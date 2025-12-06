@@ -1,3 +1,8 @@
+---
+title: Channels & Messaging
+parent: Node
+nav_order: 4
+---
 # Channels & Messaging
 
 **Document Type**: Reference Documentation

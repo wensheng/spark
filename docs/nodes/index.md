@@ -1,3 +1,8 @@
+---
+title: Node
+nav_order: 4
+---
+
 # Node Fundamentals
 
 **Document Type**: Reference Documentation

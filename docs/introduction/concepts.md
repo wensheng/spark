@@ -1,3 +1,8 @@
+---
+title: Core Concepts
+parent: Introduction
+nav_order: 5
+---
 # Core Concepts
 
 This guide provides a deep dive into Spark's architecture and fundamental concepts. Understanding these concepts will help you build sophisticated AI workflows effectively.
@@ -543,24 +548,27 @@ Agents are autonomous AI entities that use LLMs to reason, make decisions, and t
 
 ```mermaid
 graph TB
-    subgraph Agent
+    subgraph AgentSystem ["Agent"]
         Config[AgentConfig<br/>Configuration]
         Model[LLM Model<br/>OpenAI/Bedrock/Gemini]
         Tools[Tool Registry<br/>Available tools]
         Memory[Memory Manager<br/>Conversation history]
         Strategy[Reasoning Strategy<br/>ReAct/CoT/Custom]
         Cost[Cost Tracker<br/>Token & cost tracking]
+        
+        %% The orchestrator
+        Core[Agent Orchestrator]
     end
 
-    User[User Input] --> Agent
-    Agent --> Model
+    User[User Input] --> Core
+    Core --> Model
     Model --> |Tool calls| Tools
     Tools --> |Results| Model
     Model --> Memory
     Strategy --> Model
-    Agent --> Output[Agent Output]
+    Core --> Output[Agent Output]
 
-    style Agent fill:#fff4e1
+    style AgentSystem fill:#fff4e1
 ```
 
 ### Agent Components

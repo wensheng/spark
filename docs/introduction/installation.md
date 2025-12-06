@@ -1,3 +1,8 @@
+---
+title: Installation
+parent: Introduction
+nav_order: 4
+---
 # Installation
 
 This guide covers installing Spark ADK and its dependencies for different use cases.

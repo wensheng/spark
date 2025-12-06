@@ -1,5 +1,5 @@
 ---
-title: Introduction to Spark ADK
+title: Introduction
 nav_order: 2
 ---
 # Introduction to Spark ADK

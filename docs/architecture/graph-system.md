@@ -1,3 +1,8 @@
+---
+title: Graph System
+parent: Architecture
+nav_order: 2
+---
 # Graph System Architecture
 
 ## Overview

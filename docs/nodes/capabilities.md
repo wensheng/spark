@@ -1,3 +1,8 @@
+---
+title: Capabilities System
+parent: Node
+nav_order: 1
+---
 # Capabilities System
 
 **Document Type**: Reference Documentation

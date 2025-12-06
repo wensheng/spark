@@ -1,3 +1,8 @@
+---
+title: Special Node Types
+parent: Node
+nav_order: 3
+---
 # Special Node Types
 
 **Document Type**: Reference Documentation

@@ -1,3 +1,8 @@
+---
+title: RPC
+parent: Architecture
+nav_order: 4
+---
 # RPC Architecture
 
 ## Overview

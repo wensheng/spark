@@ -1,3 +1,8 @@
+---
+title: Quick Start
+parent: Introduction
+nav_order: 4
+---
 # Quick Start
 
 This guide will get you building with Spark in minutes. We'll create a simple node, compose a workflow, and build an AI agent with tools.
@@ -7,8 +12,7 @@ This guide will get you building with Spark in minutes. We'll create a simple no
 Make sure Spark is installed:
 
 ```bash
-pip install spark-adk openai
-export OPENAI_API_KEY="sk-..."
+pip install spark
 ```
 
 See [Installation](installation.md) for details.
@@ -51,7 +55,7 @@ python hello.py
 
 ## Your First Graph
 
-Nodes are powerful when composed into **Graphs** - complete workflows with multiple connected nodes.
+Nodes are powerful when composed into **Graphs** - complete workflows with multiple nodes.
 
 Create `first_graph.py`:
 
@@ -82,19 +86,22 @@ class OutputNode(Node):
         print(f"Final: {result}")
         return {'done': True}
 
-# Create nodes
-input_node = InputNode()
-process_node = ProcessNode()
-output_node = OutputNode()
+async def main(inputs):
+    # Create nodes
+    input_node = InputNode()
+    process_node = ProcessNode()
+    output_node = OutputNode()
 
-# Connect nodes with >> operator
-input_node >> process_node >> output_node
+    # Connect nodes with >> operator
+    input_node >> process_node >> output_node
 
-# Create graph starting from first node
-graph = Graph(start=input_node)
+    # Create graph starting from first node
+    graph = Graph(start=input_node)
+    result = await graph.run(inputs)
+    return result
 
 if __name__ == "__main__":
-    result = arun(graph.run({'message': 'hello spark'}))
+    result = arun(main({'message': 'hello spark'}))
     print(f"Graph completed: {result.content}")
 ```
 
@@ -176,6 +183,11 @@ if __name__ == "__main__":
 ## Building an AI Agent
 
 Now let's create an AI agent that can use tools to answer questions.
+
+For this, we need to set up the OpenAI API key.
+```bash
+export OPENAI_API_KEY="sk-..."
+```
 
 Create `simple_agent.py`:
 

@@ -1,3 +1,8 @@
+---
+title: Node System
+parent: Architecture
+nav_order: 1
+---
 # Node System Architecture
 
 ## Overview

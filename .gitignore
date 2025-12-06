@@ -3,3 +3,4 @@ dist/
 .vscode/
 poetry.lock
 .ipynb_checkpoints/
+_site/
