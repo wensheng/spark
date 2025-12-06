@@ -116,7 +116,6 @@ class Graph(BaseGraph):
         initial_state = kwargs.get('initial_state')
         self._state_schema = state_schema
         self.state = GraphState(initial_state, backend=state_backend, schema_model=state_schema)
-        self._state_enabled: bool = kwargs.get('enable_graph_state', True)
         self._checkpoint_config: GraphCheckpointConfig | None = None
         self._checkpoint_history: list[GraphCheckpoint] = []
         self._last_checkpoint_at: float | None = None
@@ -150,8 +149,7 @@ class Graph(BaseGraph):
         self.artifacts: ArtifactManager | None = artifact_manager or (
             ArtifactManager(self.state, policy=artifact_policy) if artifact_policy else None
         )
-        approval_state = self.state if self._state_enabled else None
-        self._approval_manager = ApprovalGateManager(approval_state, storage_key=approval_state_key)
+        self._approval_manager = ApprovalGateManager(self.state, storage_key=approval_state_key)
         self._attach_policy_engine_to_nodes()
 
     def register_hook(self, event: GraphLifecycleEvent | str, hook: HookFn) -> None:
@@ -215,7 +213,7 @@ class Graph(BaseGraph):
     ) -> None:
         """Store task metadata in graph state for observability."""
 
-        if not self._state_enabled or not task.task_id:
+        if not task.task_id:
             return
         payload = self._build_task_metadata_payload(task)
         if not payload:
@@ -350,8 +348,7 @@ class Graph(BaseGraph):
         await self._enforce_policy_for_task(task)
         if self.workspace:
             await self.workspace.ensure_directories()
-            if self._state_enabled:
-                await self.state.set('workspace', self.workspace.describe())
+            await self.state.set('workspace', self.workspace.describe())
         if is_long_lived_task:
             await self._enable_mailbox_persistence()
         self._prepare_runtime()
@@ -359,7 +356,7 @@ class Graph(BaseGraph):
         await self._persist_task_metadata(task, 'running', extra={'started_at': time.time()})
         # Persist campaign metadata for downstream nodes/telemetry
         campaign_info = getattr(task, 'campaign', None)
-        if campaign_info and self._state_enabled:
+        if campaign_info:
             await self.state.set('campaign', campaign_info.model_dump())
 
         # Start telemetry trace if enabled
@@ -792,8 +789,6 @@ class Graph(BaseGraph):
     async def _record_policy_decision(self, decision: PolicyDecision, request: PolicyRequest) -> None:
         """Persist policy decisions for auditing."""
 
-        if not self._state_enabled:
-            return
         events = await self.state.get(self._policy_state_key, [])
         timeline = list(events) if isinstance(events, list) else []
         timeline.append(
@@ -963,8 +958,6 @@ class Graph(BaseGraph):
 
     def _attach_graph_state_to_nodes(self) -> None:
         """Inject graph state reference into all nodes."""
-        if not self._state_enabled:
-            return
         for node in self.nodes:
             setattr(node, '_graph_state', self.state)
 

@@ -149,8 +149,7 @@ class PlanManager:
 
     async def _emit_plan_snapshot(self, graph: "Graph") -> None:  # type: ignore[name-defined]
         snapshot = self.plan.to_snapshot()
-        if getattr(graph, "_state_enabled", False):
-            await graph.state.set(self.state_key, snapshot)
+        await graph.state.set(self.state_key, snapshot)
         if self.telemetry_topic:
             await graph.event_bus.publish(self.telemetry_topic, {'plan': snapshot})
         telemetry_manager = getattr(graph, '_telemetry_manager', None)
@@ -258,8 +257,6 @@ class BudgetGuardrail(Guardrail):
         await self._persist_budget(ctx)
 
     async def _persist_budget(self, ctx) -> None:
-        if not getattr(ctx.graph, '_state_enabled', False):
-            return
         runtime = None
         if self._start_time is not None:
             runtime = max(time.time() - self._start_time, 0.0)

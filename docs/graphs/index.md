@@ -36,7 +36,6 @@ graph = Graph(start=start_node)
 Graph(
     start: BaseNode,                          # Starting node for graph execution
     initial_state: Optional[dict] = None,     # Initial graph state
-    enable_graph_state: bool = True,          # Enable/disable graph state
     telemetry_config: Optional[TelemetryConfig] = None,  # Telemetry configuration
     event_bus: Optional[GraphEventBus] = None  # Custom event bus
 )
@@ -48,7 +47,6 @@ Graph(
 |-----------|------|---------|-------------|
 | `start` | `BaseNode` | Required | Entry point node for graph execution |
 | `initial_state` | `dict` | `None` | Initial values for graph state |
-| `enable_graph_state` | `bool` | `True` | Whether to enable shared graph state |
 | `telemetry_config` | `TelemetryConfig` | `None` | Configuration for telemetry collection |
 | `event_bus` | `GraphEventBus` | `None` | Custom event bus instance |
 
