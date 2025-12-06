@@ -1,3 +1,8 @@
+---
+title: Memory Management Reference
+parent: Agent
+nav_order: 2
+---
 # Memory Management Reference
 
 This reference covers Spark's memory management system for maintaining conversation history in agents.

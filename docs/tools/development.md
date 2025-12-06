@@ -1,3 +1,8 @@
+---
+title: Tool Development Reference
+parent: Tools
+nav_order: 2
+---
 # Tool Development Reference
 
 This reference covers advanced patterns and best practices for developing robust, production-ready tools in Spark ADK.

@@ -1,3 +1,8 @@
+---
+title: Event Bus Reference
+parent: Graph
+nav_order: 4
+---
 # Event Bus Reference
 
 This reference covers the graph event system for observability, monitoring, and reactive programming in Spark workflows.

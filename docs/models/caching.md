@@ -1,3 +1,8 @@
+---
+title: Model Response Caching
+parent: Models
+nav_order: 2
+---
 # Model Response Caching
 
 Spark's model response caching system dramatically speeds up development and testing by caching LLM responses locally. When enabled, identical requests return cached responses instantly instead of making expensive API calls.

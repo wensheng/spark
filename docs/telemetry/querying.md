@@ -1,3 +1,8 @@
+---
+title: Querying Telemetry Reference
+parent: Telemetry
+nav_order: 4
+---
 # Querying Telemetry Reference
 
 ## Overview

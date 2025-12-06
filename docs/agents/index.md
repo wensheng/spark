@@ -1,3 +1,7 @@
+---
+title: Agent
+nav_order: 6
+---
 # Agent Fundamentals Reference
 
 This reference covers the core concepts and fundamental operations for working with Spark agents.

@@ -1,3 +1,8 @@
+---
+title: AgentConfig Reference
+parent: Config
+nav_order: 3
+---
 # AgentConfig Reference
 
 This document provides a complete reference for `AgentConfig`, the configuration class used to customize agent behavior in Spark.
@@ -157,6 +162,7 @@ Be thorough and precise."""
 **Description**: Jinja2 template for formatting user prompts with variables.
 
 **Usage**:
+{% raw %}
 ```python
 config = AgentConfig(
     model=model,
@@ -168,6 +174,8 @@ User Query: {{ query }}
 Provide a {{ response_format }} response.
 """
 )
+```
+{% endraw %}
 
 # Use with variables
 response = await agent.run(
@@ -187,6 +195,7 @@ response = await agent.run(
 - Re-rendered on each step for multi-step reasoning
 
 **Example - Advanced Templates**:
+{% raw %}
 ```python
 # Conditional template
 prompt_template = """
@@ -214,7 +223,8 @@ Previous results:
 {% endfor %}
 
 Next task: {{ current_task }}
-"""
+```
+{% endraw %}
 ```
 
 #### `preload_messages`
@@ -905,6 +915,7 @@ config = AgentConfig(
 
 ## Complete Configuration Example
 
+{% raw %}
 ```python
 from spark.agents import Agent, AgentConfig
 from spark.agents.memory import MemoryConfig, MemoryPolicyType
@@ -992,6 +1003,7 @@ Provide analysis with tool usage.
 agent = Agent(config=config)
 response = await agent.run("Analyze recent sales trends")
 ```
+{% endraw %}
 
 ## Configuration Patterns
 

@@ -1,3 +1,8 @@
+---
+title: Phase 5. Pattern Extraction & Meta-Graph
+parent: RSI
+nav_order: 5
+---
 # Phase 5: Pattern Extraction & Meta-Graph
 
 ## Overview

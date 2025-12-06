@@ -1,3 +1,8 @@
+---
+title: Agent Error Handling Reference
+parent: Agent
+nav_order: 7
+---
 # Agent Error Handling Reference
 
 This reference covers error handling patterns, exception types, and fault tolerance strategies for Spark agents.

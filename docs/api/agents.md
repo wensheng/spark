@@ -1,3 +1,8 @@
+---
+title: Agent Classes API Reference
+parent: API
+nav_order: 2
+---
 # Agent Classes API Reference
 
 This document provides the complete API reference for Spark's agent system, including the main Agent class, configuration, memory management, reasoning strategies, and cost tracking.

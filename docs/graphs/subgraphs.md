@@ -1,3 +1,8 @@
+---
+title: Subgraphs and Composition
+parent: Graph
+nav_order: 6
+---
 # Subgraphs and Composition
 
 This reference covers creating, composing, and managing subgraphs for building modular and reusable Spark workflows.

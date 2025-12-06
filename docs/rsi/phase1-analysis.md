@@ -1,3 +1,8 @@
+---
+title: Phase 1. Performance Analysis & Introspection
+parent: RSI
+nav_order: 1
+---
 # Phase 1: Performance Analysis & Introspection
 
 ## Overview

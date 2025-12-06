@@ -1,3 +1,7 @@
+---
+title: Governance and Agents
+nav_order: 14
+---
 # Governance and Agents
 
 This guide covers integrating Spark's governance system with agents to enforce policies, manage costs, implement approval workflows, ensure security, and maintain compliance.

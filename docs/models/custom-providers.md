@@ -1,3 +1,8 @@
+---
+title: Custom Model Providers
+parent: Models
+nav_order: 4
+---
 # Custom Model Providers
 
 Spark's model abstraction layer makes it straightforward to integrate custom LLM providers or self-hosted models. This guide shows you how to implement the `Model` interface to add support for new providers.

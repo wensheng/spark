@@ -1,3 +1,8 @@
+---
+title: Tool Depot Reference
+parent: Tools
+nav_order: 3
+---
 # Tool Depot Reference
 
 This reference covers the pre-built tools available in Spark ADK's tool depot (`spark/tools/depot/`).

@@ -1,3 +1,8 @@
+---
+title: Events and Metrics Reference
+parent: Telemetry
+nav_order: 3
+---
 # Events and Metrics Reference
 
 ## Overview

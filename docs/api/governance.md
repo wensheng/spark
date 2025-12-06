@@ -1,3 +1,8 @@
+---
+title: Governance Classes
+parent: API
+nav_order: 5
+---
 # Governance Classes
 
 This document provides comprehensive API reference for Spark's Governance system. These classes enable policy-based control of agent and graph behavior through declarative rules, approval workflows, and compliance enforcement.

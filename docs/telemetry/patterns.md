@@ -1,3 +1,8 @@
+---
+title: Telemetry Patterns and Best Practices
+parent: Telemetry
+nav_order: 5
+---
 # Telemetry Patterns and Best Practices
 
 ## Overview

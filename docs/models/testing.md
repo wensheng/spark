@@ -1,3 +1,8 @@
+---
+title: Testing Models
+parent: Models
+nav_order: 3
+---
 # Testing Models
 
 Spark provides testing utilities that enable development and testing without making expensive LLM API calls. These tools help you iterate quickly, run deterministic tests, and avoid costs during development.

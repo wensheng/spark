@@ -1,3 +1,7 @@
+---
+title: Checkpointing and Recovery
+nav_order: 14
+---
 # Checkpointing and Recovery
 
 This guide covers checkpointing and recovery strategies for building resilient long-running workflows and agents that can recover from failures and interruptions.

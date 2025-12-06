@@ -1,3 +1,7 @@
+---
+title: Code Generation
+nav_order: 13
+---
 # Code Generation
 
 The Spark code generator (`spark/kit/codegen.py`) provides reverse-compilation from GraphSpec specifications to executable Python code. This enables specification-driven development, where workflows are defined declaratively and code is generated automatically.

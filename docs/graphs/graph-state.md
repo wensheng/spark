@@ -1,3 +1,8 @@
+---
+title: Graph State Reference
+parent: Graph
+nav_order: 2
+---
 # Graph State Reference
 
 This reference covers the graph state system for managing shared data across nodes in Spark workflows.

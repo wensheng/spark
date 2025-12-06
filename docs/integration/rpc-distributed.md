@@ -1,3 +1,7 @@
+---
+title: RPC and Distributed Workflows
+nav_order: 14
+---
 # RPC and Distributed Workflows
 
 This guide covers building distributed workflows using Spark's RPC system, including service decomposition, state management across services, error handling, and testing strategies.

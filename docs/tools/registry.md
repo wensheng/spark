@@ -1,3 +1,8 @@
+---
+title: Tool Registry Reference
+parent: Tools
+nav_order: 1
+---
 # Tool Registry Reference
 
 This reference covers the `ToolRegistry` class for managing collections of tools in Spark ADK.

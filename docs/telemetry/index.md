@@ -1,3 +1,7 @@
+---
+title: Telemetry
+nav_order: 9
+---
 # Telemetry System Overview
 
 ## Introduction

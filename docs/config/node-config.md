@@ -1,3 +1,8 @@
+---
+title: NodeConfig Reference
+parent: Config
+nav_order: 2
+---
 # NodeConfig Reference
 
 This document provides a complete reference for `NodeConfig`, the configuration class used to customize node behavior in Spark.

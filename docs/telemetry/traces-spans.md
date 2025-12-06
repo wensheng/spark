@@ -1,3 +1,8 @@
+---
+title: Traces and Spans Reference
+parent: Telemetry
+nav_order: 2
+---
 # Traces and Spans Reference
 
 ## Overview

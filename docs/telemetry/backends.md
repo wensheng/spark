@@ -1,3 +1,8 @@
+---
+title: Telemetry Backends Reference
+parent: Telemetry
+nav_order: 1
+---
 # Telemetry Backends Reference
 
 ## Overview

@@ -1,3 +1,8 @@
+---
+title: RPC Security
+parent: RPC
+nav_order: 4
+---
 # RPC Security
 
 Securing RPC services is critical for production deployments. This guide covers authentication, authorization, encryption, input validation, and other security best practices for Spark RPC systems.

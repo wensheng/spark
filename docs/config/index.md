@@ -1,4 +1,8 @@
-# Environment Variables
+---
+title: Config
+nav_order: 15
+---
+# Config - Environment Variables
 
 This document describes environment variables used by Spark to configure runtime behavior.
 

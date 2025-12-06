@@ -1,3 +1,8 @@
+---
+title: RPC Examples & Patterns
+parent: RPC
+nav_order: 5
+---
 # RPC Examples & Patterns
 
 This guide demonstrates common patterns and real-world examples for building distributed systems with Spark RPC.

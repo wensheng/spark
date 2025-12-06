@@ -1,3 +1,8 @@
+---
+title: OpenAI Models
+parent: Models
+nav_order: 1
+---
 # OpenAI Models
 
 The `OpenAIModel` class provides integration with OpenAI's API and OpenAI-compatible providers. This is the primary model implementation in Spark and serves as the reference for how model providers work.

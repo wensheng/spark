@@ -1,3 +1,7 @@
+---
+title: Governance Patterns
+nav_order: 12
+---
 # Governance Patterns
 
 This guide presents enterprise-grade governance patterns for production deployments. These patterns demonstrate how to combine policies, approvals, and organizational controls into comprehensive governance frameworks.

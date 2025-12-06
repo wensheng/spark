@@ -1,3 +1,7 @@
+---
+title: Models
+nav_order: 8
+---
 # Model Abstraction
 
 The Spark Models System provides a unified abstraction layer for working with Large Language Models (LLMs) from different providers. This abstraction enables you to write code once and seamlessly switch between providers without changing your application logic.

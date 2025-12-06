@@ -1,3 +1,8 @@
+---
+title: Phase 6. Advanced Optimization
+parent: RSI
+nav_order: 6
+---
 # Phase 6: Advanced Optimization
 
 ## Overview

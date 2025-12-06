@@ -1,3 +1,8 @@
+---
+title: Cost Tracking Reference
+parent: Agent
+nav_order: 5
+---
 # Cost Tracking Reference
 
 This reference covers Spark's built-in cost tracking system for monitoring token usage and API costs in agent operations.

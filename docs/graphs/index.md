@@ -1,3 +1,7 @@
+---
+title: Graph
+nav_order: 5
+---
 # Graph Fundamentals
 
 This reference covers the core concepts and APIs for creating and running graphs in Spark ADK.

@@ -1,3 +1,7 @@
+---
+title: Specification Models
+nav_order: 13
+---
 # Specification Models
 
 Spark's specification models provide complete, type-safe representations of all framework components using Pydantic. These models enable serialization, validation, and programmatic manipulation of graphs, nodes, agents, tools, and missions.

@@ -1,3 +1,7 @@
+---
+title: Policy Rules & Effects
+nav_order: 12
+---
 # Policy Rules & Effects
 
 This guide covers the detailed structure of PolicyRule, how to define conditions and constraints, the three policy effects, and how rules are evaluated by the PolicyEngine.

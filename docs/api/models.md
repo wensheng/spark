@@ -1,3 +1,8 @@
+---
+title: Model Classes API Reference
+parent: API
+nav_order: 1
+---
 # Model Classes API Reference
 
 This document provides the complete API reference for Spark's model system, including the abstract Model base class, provider implementations (OpenAI, Bedrock, Gemini), and the response caching system.

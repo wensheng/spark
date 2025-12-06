@@ -1,3 +1,8 @@
+---
+title: RSI CLI & Tools
+parent: RSI
+nav_order: 8
+---
 # RSI CLI & Tools
 
 ## Overview

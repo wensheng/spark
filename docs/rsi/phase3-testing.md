@@ -1,3 +1,8 @@
+---
+title: Phase 3. Automated A/B Testing
+parent: RSI
+nav_order: 3
+---
 # Phase 3: Automated A/B Testing
 
 ## Overview

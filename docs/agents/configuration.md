@@ -1,3 +1,8 @@
+---
+title: Agent Configuration Reference
+parent: Agent
+nav_order: 1
+---
 # Agent Configuration Reference
 
 This reference provides complete documentation for configuring Spark agents using `AgentConfig`.
@@ -285,6 +290,7 @@ config = AgentConfig(
 
 Templates support Jinja2 syntax for dynamic prompts:
 
+{% raw %}
 ```python
 from spark.agents import AgentConfig
 
@@ -313,11 +319,13 @@ result = await agent.run(
     }
 )
 ```
+{% endraw %}
 
 ### User Prompt Templates
 
 Customize user message formatting:
 
+{% raw %}
 ```python
 # Template for user messages
 user_template = """User Query: {{ query }}
@@ -344,6 +352,7 @@ result = await agent.run(
     context={"data": "..."}
 )
 ```
+{% endraw %}
 
 ### Template Variables
 
@@ -351,16 +360,17 @@ Available variables in templates:
 
 | Variable | Description | Example |
 |----------|-------------|---------|
-| `query` | User message | `{{ query }}` |
-| `context` | Additional context dict | `{{ context.key }}` |
-| `tools` | Available tools list | `{{ tools|length }}` |
-| `history_length` | Conversation history size | `{{ history_length }}` |
-| Custom variables | From context dict | `{{ context.custom_var }}` |
+| `query` | User message | `{% raw %}{{ query }}{% endraw %}` |
+| `context` | Additional context dict | `{% raw %}{{ context.key }}{% endraw %}` |
+| `tools` | Available tools list | `{% raw %}{{ tools|length }}{% endraw %}` |
+| `history_length` | Conversation history size | `{% raw %}{{ history_length }}{% endraw %}` |
+| Custom variables | From context dict | `{% raw %}{{ context.custom_var }}{% endraw %}` |
 
 ### Template Filters
 
 Jinja2 filters for formatting:
 
+{% raw %}
 ```python
 system_prompt = """Tools available: {{ tools|map(attribute='tool_name')|join(', ') }}
 
@@ -369,6 +379,7 @@ Context summary: {{ context.text|truncate(100) }}
 Date: {{ context.date|default('Unknown') }}
 """
 ```
+{% endraw %}
 
 ## Output Modes
 

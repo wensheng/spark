@@ -1,3 +1,8 @@
+---
+title: Agent Checkpointing Reference
+parent: Agent
+nav_order: 6
+---
 # Agent Checkpointing Reference
 
 This reference covers Spark's agent checkpointing system for saving and restoring complete agent state.

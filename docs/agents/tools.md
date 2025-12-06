@@ -1,3 +1,8 @@
+---
+title: Agent Tools Reference
+parent: Agent
+nav_order: 4
+---
 # Agent Tools Reference
 
 This reference covers tool integration with Spark agents, including registration, execution, and advanced patterns.

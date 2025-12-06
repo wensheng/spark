@@ -1,3 +1,8 @@
+---
+title: Config Files
+parent: Confgi
+nav_order: 1
+---
 # Configuration Files
 
 This document describes configuration files used by Spark for persistent settings, pricing data, policies, and other structured configuration.

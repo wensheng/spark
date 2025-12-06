@@ -1,3 +1,8 @@
+---
+title: RPC Classes
+parent: API
+nav_order: 4
+---
 # RPC Classes
 
 This document provides comprehensive API reference for Spark's RPC (Remote Procedure Call) system. These classes enable distributed workflows by exposing nodes as JSON-RPC 2.0 services and calling remote services from local graphs.

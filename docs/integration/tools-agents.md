@@ -1,3 +1,7 @@
+---
+title: Tools and Agents
+nav_order: 14
+---
 # Tools and Agents
 
 This guide covers how to effectively integrate tools with agents, including tool registration, custom tool development, composition patterns, error handling, and performance optimization.

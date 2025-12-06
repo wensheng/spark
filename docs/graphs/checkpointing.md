@@ -1,3 +1,8 @@
+---
+title: Graph Checkpointing
+parent: Graph
+nav_order: 5
+---
 # Graph Checkpointing
 
 This reference covers checkpointing and recovery mechanisms for Spark graphs, enabling fault tolerance and debugging capabilities.

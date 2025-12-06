@@ -1,3 +1,7 @@
+---
+title: Multi-Agent Coordination
+nav_order: 14
+---
 # Multi-Agent Coordination
 
 This guide covers advanced patterns for coordinating multiple AI agents within Spark workflows, enabling sophisticated multi-agent systems with specialization, collaboration, and consensus mechanisms.
@@ -353,6 +357,7 @@ Implement supervisor-worker patterns for task delegation:
 
 ### Supervisor-Worker Pattern
 
+{% raw %}
 ```python
 class SupervisorNode(Node):
     """Supervisor agent that delegates tasks."""
@@ -482,6 +487,7 @@ review = ReviewNode(
 supervisor >> research_worker >> review
 supervisor >> analysis_worker >> review
 ```
+{% endraw %}
 
 ## Consensus Mechanisms
 
@@ -489,6 +495,7 @@ Implement voting and consensus for critical decisions:
 
 ### Simple Majority Voting
 
+{% raw %}
 ```python
 class VotingAgentNode(Node):
     """Agent that casts a vote."""
@@ -573,6 +580,7 @@ voter3 >> consensus
 
 graph = Graph(start=voter1, initial_state={'votes': {}})
 ```
+{% endraw %}
 
 ### Iterative Consensus
 
@@ -649,6 +657,7 @@ Advanced GraphState patterns for agent coordination:
 
 ### Shared Knowledge Graph
 
+{% raw %}
 ```python
 class KnowledgeContributorNode(Node):
     """Agent contributes facts to shared knowledge graph."""
@@ -716,9 +725,11 @@ class KnowledgeQueryNode(Node):
 
         return {'answer': result.output}
 ```
+{% endraw %}
 
 ### Blackboard Pattern
 
+{% raw %}
 ```python
 class BlackboardWriterNode(Node):
     """Agent writes hypotheses to blackboard."""
@@ -790,6 +801,7 @@ class BlackboardEvaluatorNode(Node):
             'reasoning': result.output['reasoning']
         }
 ```
+{% endraw %}
 
 ## Agent Communication Patterns
 

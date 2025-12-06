@@ -1,3 +1,7 @@
+---
+title: Tools 
+nav_order: 7
+---
 # Tool Fundamentals Reference
 
 This reference covers the fundamental concepts and patterns for creating and using tools in Spark ADK.

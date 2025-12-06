@@ -1,3 +1,8 @@
+---
+title: Edge Conditions and Flow Control
+parent: Graph
+nav_order: 1
+---
 # Edge Conditions and Flow Control
 
 This reference covers edge conditions, conditional routing, and flow control patterns in Spark graphs.

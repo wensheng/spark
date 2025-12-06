@@ -1,3 +1,8 @@
+---
+title: RPC Client (RemoteRpcProxyNode)
+parent: RPC
+nav_order: 3
+---
 # RPC Client (RemoteRpcProxyNode)
 
 The **RemoteRpcProxyNode** enables local Spark graphs to call remote RPC services transparently. It acts as a proxy that translates node inputs into JSON-RPC requests, forwards them to remote servers, and returns responses as node outputs.

@@ -1,3 +1,8 @@
+---
+title: Execution Modes
+parent: Graph
+nav_order: 3
+---
 # Execution Modes
 
 This reference covers the different execution modes available for Spark graphs and when to use each one.

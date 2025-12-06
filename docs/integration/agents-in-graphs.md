@@ -1,3 +1,7 @@
+---
+title: Agents in Graphs
+nav_order: 14
+---
 # Agents in Graphs
 
 This guide covers how to integrate Spark agents into graph workflows, enabling you to build multi-step workflows that leverage LLM-powered autonomous agents alongside traditional processing nodes.

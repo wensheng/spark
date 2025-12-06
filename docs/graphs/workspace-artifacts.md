@@ -1,3 +1,8 @@
+---
+title: Workspace and Artifacts
+parent: Graph
+nav_order: 7
+---
 # Workspace and Artifacts
 
 This reference covers workspace management and artifact handling for isolated execution environments and file generation in Spark workflows.

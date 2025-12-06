@@ -1,3 +1,8 @@
+---
+title: RSI Meta-Graph
+parent: RSI
+nav_order: 7
+---
 # RSI Meta-Graph
 
 ## Overview

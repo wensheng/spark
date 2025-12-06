@@ -1,3 +1,8 @@
+---
+title: Tool Specifications Reference
+parent: Tools
+nav_order: 4
+---
 # Tool Specifications Reference
 
 This reference covers the structure and format of tool specifications in Spark ADK, including JSON schema generation, provider-specific formats, and validation.

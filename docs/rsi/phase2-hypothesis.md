@@ -1,3 +1,8 @@
+---
+title: Phase 2. Hypothesis Generation & Validation
+parent: RSI
+nav_order: 2
+---
 # Phase 2: Hypothesis Generation & Validation
 
 ## Overview
