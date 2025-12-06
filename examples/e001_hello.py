@@ -11,7 +11,7 @@ from spark.nodes import Node
 
 class SimpleNode(Node):
     def process(self):
-        print("hello from spark node")
+        print("Hello from spark node")
 
 
 if __name__ == "__main__":

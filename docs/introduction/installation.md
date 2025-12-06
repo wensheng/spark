@@ -14,7 +14,7 @@ This guide covers installing Spark ADK and its dependencies for different use ca
 Install Spark via pip:
 
 ```bash
-pip install spark-adk
+pip install spark
 ```
 
 Verify installation:
@@ -30,12 +30,10 @@ python -c "from spark.nodes import Node; from spark.graphs import Graph; print('
 For basic node and graph functionality:
 
 ```bash
-pip install spark-adk
+pip install spark
 ```
 
-This installs core dependencies:
-- `pydantic>=2.0` - Data models and validation
-- `jinja2` - Template rendering
+This also installs core dependencies.
 
 ### 2. Development Installation
 
@@ -43,14 +41,14 @@ To work on Spark itself or run examples from the repository:
 
 ```bash
 # Clone repository
-git clone https://github.com/yourusername/spark.git
+git clone https://github.com/wensheng/spark.git
 cd spark
 
 # Install in editable mode
 pip install -e .
 
-# Install development dependencies
-pip install pytest pytest-asyncio black
+# Install development and test dependencies
+pip install pytest pytest-asyncio black boto3 google-genai ddgs
 ```
 
 Verify:
@@ -73,7 +71,7 @@ FROM python:3.12-slim
 WORKDIR /app
 
 # Install Spark
-RUN pip install spark-adk
+RUN pip install spark
 
 # Copy your application
 COPY . .
@@ -94,25 +92,11 @@ Spark uses optional dependencies for specific features. Install only what you ne
 
 ### LLM Models
 
-#### OpenAI and OpenAI-Compatible Providers
-
-```bash
-pip install openai
-```
-
-Required for:
-- `OpenAIModel` class
-- OpenAI API (GPT-4, GPT-4o, etc.)
-- Azure OpenAI
-- OpenAI-compatible providers (Ollama, LM Studio, etc.)
+OpenAI package is installed when you install `spark`.
 
 **Environment setup:**
 ```bash
 export OPENAI_API_KEY="sk-..."
-
-# For Azure OpenAI
-export AZURE_OPENAI_API_KEY="..."
-export AZURE_OPENAI_ENDPOINT="https://..."
 
 # For custom providers
 export OPENAI_API_BASE="http://localhost:11434/v1"  # Ollama example
@@ -122,13 +106,13 @@ export OPENAI_API_BASE="http://localhost:11434/v1"  # Ollama example
 ```python
 from spark.models.openai import OpenAIModel
 
-model = OpenAIModel(model_id="gpt-4o")
+model = OpenAIModel(model_id="gpt-5-mini")
 ```
 
 #### AWS Bedrock
 
 ```bash
-pip install boto3 json_repair
+pip install boto3
 ```
 
 Required for:
@@ -156,7 +140,7 @@ model = BedrockModel(model_id="us.anthropic.claude-sonnet-4-5-20250929-v1:0")
 #### Google Gemini
 
 ```bash
-pip install google-generativeai
+pip install google-genai
 ```
 
 Required for:
@@ -172,44 +156,10 @@ export GOOGLE_API_KEY="..."
 ```python
 from spark.models.gemini import GeminiModel
 
-model = GeminiModel(model_id="gemini-pro")
-```
-
-### RPC Nodes (Distributed Workflows)
-
-```bash
-pip install starlette uvicorn httpx websockets
-```
-
-Required for:
-- `RpcNode` - JSON-RPC 2.0 server
-- `RemoteRpcProxyNode` - RPC client proxy
-- HTTP and WebSocket transports
-
-**Usage:**
-```python
-from spark.nodes.rpc import RpcNode
-from spark.nodes.rpc_client import RemoteRpcProxyNode
+model = GeminiModel(model_id="gemini-2.5-flash")
 ```
 
 ### Telemetry Backends
-
-#### SQLite Backend (Local Persistence)
-
-```bash
-pip install aiosqlite
-```
-
-Required for:
-- SQLite telemetry backend
-- Local persistent storage of traces, spans, events, metrics
-
-**Usage:**
-```python
-from spark.telemetry import TelemetryConfig
-
-config = TelemetryConfig.create_sqlite(db_path="telemetry.db")
-```
 
 #### PostgreSQL Backend (Production)
 
@@ -263,7 +213,7 @@ config = TelemetryConfig.create_otlp(
 #### Web Search
 
 ```bash
-pip install ddgs
+pip install ddgs search-tool
 ```
 
 Required for:
@@ -277,26 +227,6 @@ from spark.utils.common import search_web
 results = search_web("Python async programming")
 ```
 
-#### Tool System
-
-```bash
-pip install docstring_parser
-```
-
-Required for:
-- `@tool` decorator metadata extraction
-- Automatic schema generation from docstrings
-
-**Usage:**
-```python
-from spark.tools.decorator import tool
-
-@tool
-def my_tool(param: str) -> str:
-    """Tool description extracted automatically."""
-    return process(param)
-```
-
 #### Response Caching (Optional)
 
 ```bash
@@ -307,49 +237,14 @@ Optional for:
 - Thread-safe file operations in model response cache
 - Graceful fallback if not installed
 
-## Feature-Based Installation
-
-Install dependencies for specific features:
-
-### Minimal (Nodes & Graphs Only)
-
-```bash
-pip install spark-adk
-```
-
-### Basic Agent System
-
-```bash
-pip install spark-adk openai docstring_parser
-```
-
-### Full Agent System with Tools
-
-```bash
-pip install spark-adk openai docstring_parser ddgs
-```
-
-### Telemetry with SQLite
-
-```bash
-pip install spark-adk aiosqlite
-```
-
-### RSI System (Requires Telemetry + LLM)
-
-```bash
-pip install spark-adk openai aiosqlite docstring_parser
-```
 
 ### Complete Installation (All Features)
 
 ```bash
-pip install spark-adk \
-    openai boto3 json_repair google-generativeai \
-    starlette uvicorn httpx websockets \
-    aiosqlite asyncpg \
+pip install spark \
+    httpx asyncpg \
     opentelemetry-api opentelemetry-sdk opentelemetry-exporter-otlp \
-    ddgs docstring_parser filelock
+    ddgs search-tool filelock
 ```
 
 ## Environment Configuration
