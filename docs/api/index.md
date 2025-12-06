@@ -1,5 +1,5 @@
 ---
-title: Core Classes
+title: API
 nav_order: 16
 ---
 # Core Classes

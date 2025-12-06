@@ -1,6 +1,7 @@
 ---
 title: Graph Analysis
-nav_order: 13
+parent: SpecKit
+nav_order: 5
 ---
 # Graph Analysis
 

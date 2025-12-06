@@ -1,6 +1,7 @@
 ---
 title: Governance Patterns
-nav_order: 12
+parent: Governance
+nav_order: 4
 ---
 # Governance Patterns
 

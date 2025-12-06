@@ -1,6 +1,7 @@
 ---
 title: Spec CLI Tool
-nav_order: 13
+parent: SpecKit
+nav_order: 3
 ---
 # Spec CLI Tool
 

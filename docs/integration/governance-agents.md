@@ -1,6 +1,7 @@
 ---
 title: Governance and Agents
-nav_order: 14
+parent: Integration
+nav_order: 5
 ---
 # Governance and Agents
 

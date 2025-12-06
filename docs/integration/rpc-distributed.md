@@ -1,6 +1,7 @@
 ---
 title: RPC and Distributed Workflows
-nav_order: 14
+parent: Integration
+nav_order: 4
 ---
 # RPC and Distributed Workflows
 

@@ -1,6 +1,7 @@
 ---
 title: Models and Caching
-nav_order: 14
+parent: Integration
+nav_order: 7
 ---
 # Models and Caching
 

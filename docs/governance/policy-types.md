@@ -1,6 +1,7 @@
 ---
 title: Policy Types
-nav_order: 12
+parent: Governance
+nav_order: 2
 ---
 # Policy Types
 

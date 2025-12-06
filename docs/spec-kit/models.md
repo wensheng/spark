@@ -1,6 +1,7 @@
 ---
 title: Specification Models
-nav_order: 13
+parent: SpecKit
+nav_order: 1
 ---
 # Specification Models
 

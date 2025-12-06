@@ -1,6 +1,7 @@
 ---
 title: Multi-Agent Coordination
-nav_order: 14
+parent: Integration
+nav_order: 1
 ---
 # Multi-Agent Coordination
 

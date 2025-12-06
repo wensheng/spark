@@ -1,6 +1,7 @@
 ---
 title: Code Generation
-nav_order: 13
+parent: SpecKit
+nav_order: 4
 ---
 # Code Generation
 

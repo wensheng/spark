@@ -1,5 +1,5 @@
 ---
-title: Agents in Graphs
+title: Integration
 nav_order: 14
 ---
 # Agents in Graphs

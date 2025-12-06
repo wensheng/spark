@@ -1,6 +1,7 @@
 ---
 title: Checkpointing and Recovery
-nav_order: 14
+parent: Integration
+nav_order: 6
 ---
 # Checkpointing and Recovery
 

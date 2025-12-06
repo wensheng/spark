@@ -1,6 +1,7 @@
 ---
 title: Policy Rules & Effects
-nav_order: 12
+parent: Governance
+nav_order: 1
 ---
 # Policy Rules & Effects
 

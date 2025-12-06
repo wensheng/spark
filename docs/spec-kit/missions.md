@@ -1,6 +1,7 @@
 ---
 title: Mission System
-nav_order: 13
+parent: SpecKit
+nav_order: 6
 ---
 # Mission System
 

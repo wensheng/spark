@@ -1,6 +1,7 @@
 ---
 title: Telemetry and RSI Integration
-nav_order: 14
+parent: Integration
+nav_order: 3
 ---
 # Telemetry and RSI Integration
 

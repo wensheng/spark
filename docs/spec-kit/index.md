@@ -1,5 +1,5 @@
 ---
-title: Specification System
+title: SpecKit
 nav_order: 13
 ---
 # Specification System

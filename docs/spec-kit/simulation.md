@@ -1,6 +1,7 @@
 ---
 title: Simulation System
-nav_order: 13
+parent: SpecKit
+nav_order: 7
 ---
 # Simulation System
 

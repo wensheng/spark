@@ -1,6 +1,7 @@
 ---
 title: Tools and Agents
-nav_order: 14
+parent: Integration
+nav_order: 2
 ---
 # Tools and Agents
 

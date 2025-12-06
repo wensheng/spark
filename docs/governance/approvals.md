@@ -1,6 +1,7 @@
 ---
 title: Approval Workflows
-nav_order: 12
+parent: Governance
+nav_order: 3
 ---
 # Approval Workflows
 

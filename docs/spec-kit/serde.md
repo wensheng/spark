@@ -1,6 +1,7 @@
 ---
 title: Serialization & Deserialization
-nav_order: 13
+parent: SpecKit
+nav_order: 2
 ---
 # Serialization & Deserialization
 

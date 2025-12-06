@@ -1,5 +1,5 @@
 ---
-title: Governance Overview
+title: Governance
 nav_order: 12
 ---
 # Governance Overview
