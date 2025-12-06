@@ -515,6 +515,6 @@ Now that you've built your first Spark applications, explore these topics:
 - Review the [Core Concepts](concepts.md) for deeper understanding
 - Check [Examples](../../examples/) for more patterns
 - Read the [Guides](../guides/README.md) for specific features
-- Open an issue on [GitHub](https://github.com/yourusername/spark/issues)
+- Open an issue on [GitHub](https://github.com/wensheng/spark/issues)
 
 Happy building with Spark!

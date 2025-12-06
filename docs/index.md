@@ -2,113 +2,26 @@
 title: Spark Documentation
 nav_order: 1
 ---
-# Spark: ADK (AI Development Kit) Overview
+# Spark: AI Development Kit
 
-## What is Spark?
+**Spark** is a Python AI Development Kit (ADK) for building production-grade agentic workflows. It uses a **node-and-graph architecture** to orchestrate autonomous agents, combining the flexibility of the Actor Model with the power of Large Language Models (LLMs).
 
-Spark is a Python AI Development Kit (ADK) for building production-grade agentic workflows. It uses a **node-and-graph architecture** to orchestrate autonomous agents, combining the flexibility of the Actor Model with the power of Large Language Models (LLMs).
+Spark goes beyond simple chains, offering a complete ecosystem for building, observing, and **self-improving** AI applications. With built-in support for resilience policies, telemetry, governance, and recursive self-improvement (RSI), Spark enables developers to create sophisticated AI systems that can autonomously optimize themselves over time.
 
-Spark goes beyond simple chains, offering a complete ecosystem for building, observing, and **self-improving** AI applications.
+## Table of Contents
 
-## Core Architecture
-
-### 1. Nodes (The Actors)
-Nodes are the fundamental processing units. Each node is an independent actor that processes inputs and produces outputs.
-*   **BaseNode**: The abstract foundation.
-*   **Node**: Standard implementation supporting **Policies** (Retry, Timeout, Circuit Breaker, Rate Limit) via `NodeConfig`.
-*   **Agent**: A specialized node for LLM interaction (see below).
-*   **SubgraphNode**: Encapsulates an entire graph as a single node for modular composition.
-*   **BatchProcessNodes**: For batch processing (Sequential, Parallel, Multi-Threaded, Multi-Process).
-*   **JoinNode**: Barrier node that waits for multiple parents before executing.
-
-### 2. Graphs (The Orchestrators)
-Graphs define the topology of your workflow.
-*   **Control Flow**: Supports sequential chains (`>>`), conditional branching (routing based on logic), and loops (cyclic graphs).
-*   **Execution Models**:
-    *   **Finite Task**: Run a graph until completion (`graph.run()`).
-    *   **Continuous Service**: Run as a long-lived service (`graph.go()`), ideal for message processing or reactive systems.
-*   **State Management**: `GraphState` provides transactional, thread-safe shared state across the workflow with pluggable backends (In-Memory, SQLite, JSON).
-
-### 3. Agents (The Intelligence)
-Agents are specialized nodes designed for autonomous reasoning and tool use.
-*   **Memory**: Configurable memory managers with policies (RollingWindow, Summarize, Custom).
-*   **Strategies**: Pluggable reasoning engines:
-    *   **ReAct**: Reason + Act loop (Think -> Tool -> Observe).
-    *   **Chain-of-Thought**: Step-by-step reasoning before answering.
-    *   **Plan-and-Solve**: Generates a multi-step plan before execution.
-*   **Cost Tracking**: Built-in monitoring of token usage and costs across providers.
-*   **Checkpointing**: Full serialization of agent state for pause/resume functionality.
-
-## Key Subsystems
-
-### 4. Recursive Self-Improvement (RSI)
-A unique feature of Spark is the **RSI Meta-Graph**, a system that allows an application to optimize itself autonomously.
-*   **Analyze**: `PerformanceAnalyzerNode` reviews telemetry to find bottlenecks.
-*   **Hypothesize**: `HypothesisGeneratorNode` proposes improvements (e.g., prompt tweaks, model changes).
-*   **Validate & Test**: Hypotheses are validated against safety rules and A/B tested.
-*   **Deploy**: Successful changes can be automatically or semi-automatically rolled out.
-*   **Experience DB**: A database that learns from past optimization attempts.
-
-### 5. Governance & Policy
-Spark includes a robust policy engine for safe AI deployment.
-*   **Policy Sets**: Define rules for tool usage, sensitive data access, and budget limits.
-*   **Approval Gates**: `HumanApprovalRequired` mechanisms for high-stakes actions.
-*   **Audit Trails**: Detailed logging of policy decisions and violations.
-
-### 6. The `spark-spec` Kit
-A CLI toolkit (`spark.kit`) for managing the development lifecycle.
-*   **Spec Generation**: Create JSON specifications of your graphs.
-*   **Code Generation**: Compile JSON specs into Python code.
-*   **Simulation**: Run mission specs against simulated tools for regression testing.
-*   **Visualization**: Export graph structures for visualization.
-
-### 7. Unified Model Interface
-Write code once, run on any provider.
-*   **Supported Providers**: OpenAI, AWS Bedrock, Google Gemini.
-*   **Features**: Unified tool calling, JSON mode enforcement, and structured output parsing.
-*   **EchoModel**: A mock model for testing and development without API costs.
-
-## Ecosystem Features
-
-*   **Resilience**: Declarative policies like `RetryPolicy`, `CircuitBreakerPolicy`, and `IdempotencyPolicy` can be configured via `NodeConfig`.
-*   **Telemetry**: Deep integration with telemetry systems for tracing execution paths, latencies, and errors.
-*   **Distributed Execution**: `RpcNode` and `RemoteRpcProxyNode` allow graphs to span across network boundaries, enabling microservices architectures.
-
-## Getting Started
-
-### Installation
-```bash
-pip install spark
-```
-
-### Basic Agent
-```python
-from spark.agents import Agent, AgentConfig
-from spark.models.openai import OpenAIModel
-
-# Configure
-config = AgentConfig(
-    model=OpenAIModel(model_id="gpt-5-mini"),
-    system_prompt="You are a helpful assistant."
-)
-
-# Create and Run
-agent = Agent(config=config)
-result = await agent.run("Hello, Spark!")
-print(result.content)
-```
-
-### The Spark CLI
-```bash
-# Generate a new pipeline spec
-spark-spec generate "Research Assistant" -o research_pipeline.json
-
-# Validate the spec
-spark-spec validate research_pipeline.json
-```
-
-## Learn More
-
-*   **Programming Guide**: `docs/spark_programming_guide.md`
-*   **RSI Documentation**: `spark/rsi/README.md` (Check source)
-*   **Examples**: `examples/` folder contains over 20 fully functional examples ranging from "Hello World" to complex "RSI" and "RPC" demos.
+- [Introduction]({% link docs/introduction/index.md %})
+- [Architecture]({% link docs/architecture/index.md %})
+- [Agents]({% link docs/agents/index.md %})
+- [Graphs]({% link docs/graphs/index.md %})
+- [Nodes]({% link docs/nodes/index.md %})
+- [Models]({% link docs/models/index.md %})
+- [Tools]({% link docs/tools/index.md %})
+- [RPC]({% link docs/rpc/index.md %})
+- [RSI]({% link docs/rsi/index.md %})
+- [Telemetry]({% link docs/telemetry/index.md %})
+- [Governance]({% link docs/governance/index.md %})
+- [Spec Kit]({% link docs/spec-kit/index.md %})
+- [Configuration]({% link docs/config/index.md %})
+- [Integration]({% link docs/integration/index.md %})
+- [API Reference]({% link docs/api/index.md %})

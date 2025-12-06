@@ -8,7 +8,7 @@ Welcome to Spark ADK! This section provides everything you need to get started w
 
 ## Documentation Structure
 
-### 1. [Overview](overview.md)
+### 1. [Overview]({% link docs/introduction/overview.md %})
 **Start here** to understand what Spark is and what it can do.
 
 **Contents**:
@@ -21,7 +21,7 @@ Welcome to Spark ADK! This section provides everything you need to get started w
 
 **Time to read**: 10 minutes
 
-### 2. [Installation](installation.md)
+### 2. [Installation]({% link docs/introduction/installation.md %})
 Complete guide to installing Spark and its dependencies.
 
 **Contents**:
@@ -34,7 +34,7 @@ Complete guide to installing Spark and its dependencies.
 
 **Time to complete**: 15-30 minutes (depending on features needed)
 
-### 3. [Quick Start](quickstart.md)
+### 3. [Quick Start]({% link docs/introduction/quickstart.md %})
 Hands-on tutorial to build your first Spark applications.
 
 **Contents**:
@@ -49,7 +49,7 @@ Hands-on tutorial to build your first Spark applications.
 
 **Time to complete**: 30 minutes
 
-### 4. [Core Concepts](concepts.md)
+### 4. [Core Concepts]({% link docs/introduction/concepts.md %})
 Deep dive into Spark's architecture and fundamental abstractions.
 
 **Contents**:
@@ -108,7 +108,7 @@ After completing this introduction:
 
 - Check [Troubleshooting Guide](../guides/troubleshooting.md) for common issues
 - Review [Examples](../../examples/) for working patterns
-- Open an issue on [GitHub](https://github.com/yourusername/spark/issues)
+- Open an issue on [GitHub](https://github.com/wensheng/spark/issues)
 
 ## Feedback
 

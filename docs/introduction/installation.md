@@ -535,5 +535,5 @@ Now that Spark is installed, continue to:
 
 - Check the [Troubleshooting Guide](../guides/troubleshooting.md)
 - Review [Examples](../../examples/) for working code
-- Open an issue on [GitHub](https://github.com/yourusername/spark/issues)
+- Open an issue on [GitHub](https://github.com/wensheng/spark/issues)
 - Search existing issues for solutions

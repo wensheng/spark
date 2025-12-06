@@ -117,40 +117,38 @@ Orchestrate sophisticated workflows that:
 
 ```mermaid
 graph TB
-    subgraph "Spark ADK Architecture"
-        subgraph "Core Layer"
-            Nodes[Nodes<br/>Actor-based processing units]
-            Graphs[Graphs<br/>Workflow orchestration]
-            State[State Management<br/>Node & graph state]
-            Channels[Channels<br/>Message passing]
-        end
+    subgraph "Core Layer"
+        Nodes["Nodes<br/>Actor-based processing units"]
+        Graphs["Graphs<br/>Workflow orchestration"]
+        State["State Management<br/>Node & graph state"]
+        Channels["Channels<br/>Message passing"]
+    end
 
-        subgraph "Agent Layer"
-            Agent[Agent<br/>LLM orchestration]
-            Tools[Tool System<br/>@tool decorator]
-            Memory[Memory<br/>Conversation history]
-            Strategies[Reasoning<br/>ReAct, CoT]
-        end
+    subgraph "Agent Layer"
+        Agent["Agent<br/>LLM orchestration"]
+        Tools["Tool System<br/>@tool decorator"]
+        Memory["Memory<br/>Conversation history"]
+        Strategies["Reasoning<br/>ReAct, CoT"]
+    end
 
-        subgraph "Observability"
-            Telemetry[Telemetry<br/>Traces, spans, events]
-            Backends[Backends<br/>Memory, SQLite, Postgres, OTLP]
-        end
+    subgraph "Observability"
+        Telemetry["Telemetry<br/>Traces, spans, events"]
+        Backends["Backends<br/>Memory, SQLite, Postgres, OTLP"]
+    end
 
-        subgraph "Improvement"
-            RSI[RSI System<br/>6-phase optimization]
-            Experience[Experience DB<br/>Learning storage]
-        end
+    subgraph "Improvement"
+        RSI["RSI System<br/>6-phase optimization"]
+        Experience["Experience DB<br/>Learning storage"]
+    end
 
-        subgraph "Distribution"
-            RPC[RPC Nodes<br/>JSON-RPC 2.0]
-            SpecKit[Spec Kit<br/>Serialization & codegen]
-        end
+    subgraph "Distribution"
+        RPC["RPC Nodes<br/>JSON-RPC 2.0"]
+        SpecKit["Spec Kit<br/>Serialization & codegen"]
+    end
 
-        subgraph "Control"
-            Governance[Governance<br/>Policy engine]
-            Approval[Human Approval<br/>Review workflows]
-        end
+    subgraph "Control"
+        Governance["Governance<br/>Policy engine"]
+        Approval["Human Approval<br/>Review workflows"]
     end
 
     Graphs --> Nodes
@@ -203,30 +201,13 @@ Autonomous system where graphs analyze their own performance, generate improveme
 
 ## Getting Started
 
-Ready to dive in? Here's your path forward:
-
-1. **[Installation](installation.md)**: Set up Spark and its dependencies
-2. **[Quick Start](quickstart.md)**: Build your first node, graph, and agent
-3. **[Core Concepts](concepts.md)**: Deep dive into Spark's architecture and abstractions
-4. **[Tutorials](../tutorials/README.md)**: Step-by-step guides for common patterns
-5. **[Examples](../../examples/)**: Complete working examples in the repository
-
-## Project Status
-
-Spark is under active development with all major features implemented:
-- ✅ Node & Graph system (complete)
-- ✅ Agent system with reasoning strategies (complete)
-- ✅ Telemetry system with multiple backends (complete)
-- ✅ RSI system with 6 phases (complete)
-- ✅ Governance and policy engine (complete)
-- ✅ RPC nodes and distributed workflows (complete)
-- ✅ Spec Kit with CLI tooling (complete)
-
-The project follows semantic versioning and maintains backward compatibility for public APIs.
+Ready to dive in? Head to **[Installation]({% link docs/introduction/installation.md %})**.
 
 ## Community and Support
 
-- **Repository**: [GitHub](https://github.com/yourusername/spark)
+Spark is under active development. The project follows semantic versioning.
+
+- **Repository**: [GitHub](https://github.com/wensheng/spark)
 - **Issues**: Report bugs and request features via GitHub Issues
 - **Examples**: 17+ working examples in the `examples/` directory
 - **Tests**: 200+ tests with comprehensive coverage
