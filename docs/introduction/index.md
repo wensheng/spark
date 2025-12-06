@@ -1,3 +1,7 @@
+---
+title: Introduction to Spark ADK
+nav_order: 2
+---
 # Introduction to Spark ADK
 
 Welcome to Spark ADK! This section provides everything you need to get started with building AI workflows and autonomous agents.
