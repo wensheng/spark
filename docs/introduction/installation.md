@@ -5,17 +5,6 @@ nav_order: 4
 ---
 # Installation
 
-This guide covers installing Spark ADK and its dependencies for different use cases.
-
-## System Requirements
-
-- **Python**: 3.12 or higher
-- **Operating System**: Linux, macOS, or Windows
-- **Memory**: 4GB RAM minimum (8GB+ recommended for RSI and large graphs)
-- **Storage**: 500MB for base installation, additional space for telemetry data
-
-## Quick Installation
-
 Install Spark via pip:
 
 ```bash
@@ -28,19 +17,7 @@ Verify installation:
 python -c "from spark.nodes import Node; from spark.graphs import Graph; print('Spark installed successfully!')"
 ```
 
-## Installation Methods
-
-### 1. Basic Installation
-
-For basic node and graph functionality:
-
-```bash
-pip install spark
-```
-
-This also installs core dependencies.
-
-### 2. Development Installation
+## Development Installation
 
 To work on Spark itself or run examples from the repository:
 
@@ -66,7 +43,7 @@ pytest
 python -m examples.e001_hello
 ```
 
-### 3. Docker Installation
+## Docker Installation
 
 Use Docker for isolated environments:
 
@@ -522,18 +499,3 @@ psql $DATABASE_URL -c "SELECT 1"
 ```bash
 chmod 755 ~/.cache/spark
 ```
-
-## Next Steps
-
-Now that Spark is installed, continue to:
-- **[Quick Start](quickstart.md)**: Build your first Spark application
-- **[Core Concepts](concepts.md)**: Understand Spark's architecture
-- **[Tutorials](../tutorials/README.md)**: Step-by-step guides
-- **[Examples](../../examples/)**: Working code examples
-
-## Getting Help
-
-- Check the [Troubleshooting Guide](../guides/troubleshooting.md)
-- Review [Examples](../../examples/) for working code
-- Open an issue on [GitHub](https://github.com/wensheng/spark/issues)
-- Search existing issues for solutions

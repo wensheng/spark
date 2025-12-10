@@ -4,10 +4,6 @@ nav_order: 3
 ---
 # System Architecture
 
-## Overview
-
-Spark ADK is a Python framework for building autonomous AI workflows using a node-and-graph architecture. The system is built on foundational principles that guide all architectural decisions: composability, observability, safety, and extensibility.
-
 ## Design Philosophy
 
 ### Actor Model Foundation

@@ -7,17 +7,9 @@ nav_order: 4
 
 This guide will get you building with Spark in minutes. We'll create a simple node, compose a workflow, and build an AI agent with tools.
 
-## Prerequisites
-
-Make sure Spark is installed:
-
-```bash
-pip install spark
-```
-
-See [Installation](installation.md) for details.
-
 ## Hello World Node
+
+Make sure Spark is installed: `pip install spark`
 
 The most basic Spark component is a **Node** - an independent processing unit that implements a `process()` method.
 
@@ -312,20 +304,20 @@ Spark includes 17+ working examples covering all features. Run them to learn mor
 python -m examples.e001_hello
 
 # Simple flow with multiple nodes
-python -m examples.e002_simple_flow
+python -m examples.e002_single_llm_call_node
 
-# Conditional flow with branching
-python -m examples.e003_conditional_flow
+# Simple flow with multiple nodes
+python -m examples.e003_simple_flow_graph
 
-# Long-running nodes
-python -m examples.e004_long_running
+# Long-running streaming nodes
+python -m examples.e012_streaming_node
 ```
 
 ### Agent Examples
 
 ```bash
 # LLM tool usage
-python -m examples.e006_llm_tool
+python -m examples.e007_llm_tool
 
 # Reasoning strategies (ReAct, Chain-of-Thought)
 python -m examples.e010_reasoning_strategies
@@ -489,10 +481,10 @@ for step in agent.get_reasoning_history():
 Now that you've built your first Spark applications, explore these topics:
 
 ### Deep Dive into Concepts
-- **[Core Concepts](concepts.md)**: Understand the architecture and abstractions
-- **[Node Guide](../guides/nodes.md)**: Master node development
-- **[Graph Guide](../guides/graphs.md)**: Build complex workflows
-- **[Agent Guide](../guides/agents.md)**: Create sophisticated AI agents
+- **[Core Concepts]({% link docs/introduction/concepts.md %})**: Understand the architecture and abstractions
+- **[Node Guide]({% link docs/nodes/index.md %})**: Master node development
+- **[Graph Guide]({% link docs/graphs/index.md %})**: Build complex workflows
+- **[Agent Guide]({% link docs/agents/index.md %})**: Create sophisticated AI agents
 
 ### Tutorials
 - **[Tutorial 1: Building a Research Assistant](../tutorials/01-research-assistant.md)**
@@ -500,21 +492,12 @@ Now that you've built your first Spark applications, explore these topics:
 - **[Tutorial 3: Multi-Agent System](../tutorials/03-multi-agent.md)**
 
 ### Advanced Features
-- **[Telemetry](../guides/telemetry.md)**: Monitor and analyze execution
-- **[RSI System](../guides/rsi.md)**: Enable autonomous improvement
-- **[RPC Nodes](../guides/rpc-nodes.md)**: Build distributed workflows
-- **[Governance](../guides/governance.md)**: Add policy controls
+- **[Telemetry]({% link docs/telemetry/index.md %})**: Monitor and analyze execution
+- **[RSI System]({% link docs/rsi/index.md %})**: Enable autonomous improvement
+- **[RPC Nodes]({% link docs/rpc/index.md %})**: Build distributed workflows
+- **[Governance]({% link docs/governance/index.md %})**: Add policy controls
 
 ### Reference
-- **[API Reference](../api/README.md)**: Complete API documentation
-- **[Examples](../../examples/)**: 17+ working examples
-- **[Troubleshooting](../guides/troubleshooting.md)**: Common issues and solutions
-
-## Getting Help
-
-- Review the [Core Concepts](concepts.md) for deeper understanding
-- Check [Examples](../../examples/) for more patterns
-- Read the [Guides](../guides/README.md) for specific features
-- Open an issue on [GitHub](https://github.com/wensheng/spark/issues)
+- **[API Reference]({% link docs/api/index.md %})**: Complete API documentation
 
 Happy building with Spark!
