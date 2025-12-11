@@ -5,9 +5,7 @@ nav_order: 6
 ---
 # Subgraphs and Composition
 
-This reference covers creating, composing, and managing subgraphs for building modular and reusable Spark workflows.
-
-## Overview
+---
 
 **Subgraphs** enable hierarchical workflow composition by embedding complete graphs as nodes within parent graphs. This pattern provides:
 - Modular workflow design

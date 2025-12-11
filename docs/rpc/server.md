@@ -4,6 +4,7 @@ parent: RPC
 nav_order: 1
 ---
 # RPC Server (RpcNode)
+---
 
 The **RpcNode** class exposes a Spark node as a JSON-RPC 2.0 server, allowing remote clients to invoke its methods over HTTP or WebSocket connections. This enables service-oriented architectures and distributed workflows.
 

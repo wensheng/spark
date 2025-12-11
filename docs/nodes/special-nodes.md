@@ -5,10 +5,6 @@ nav_order: 3
 ---
 # Special Node Types
 
-**Document Type**: Reference Documentation
-**Audience**: Developers using specialized nodes for agents, RPC, and human interaction
-**Related**: [Node Fundamentals](/docs/nodes/fundamentals.md), [Agent System](/docs/agents/fundamentals.md), [RPC System](/docs/rpc/overview.md)
-
 ---
 
 ## Overview
@@ -16,192 +12,11 @@ nav_order: 3
 Spark provides specialized node types for common workflows beyond basic data processing. These nodes extend the base `Node` class with domain-specific capabilities for LLM agents, human interaction, distributed systems, and nested graphs.
 
 **Special Node Types**:
-1. **AgentNode**: LLM-powered autonomous agents
-2. **HumanNode**: Human-in-the-loop patterns
-3. **RpcNode**: JSON-RPC servers
-4. **RemoteRpcProxyNode**: RPC clients
-5. **SubgraphNode**: Nested graph composition
-6. **Custom Base Classes**: When to create your own
-
----
-
-## AgentNode
-
-### Overview
-
-`AgentNode` wraps the Spark `Agent` class to integrate LLM-powered agents into graphs as nodes.
-
-**Location**: Typically created in application code by wrapping `spark.agents.Agent`
-
-**Use Cases**:
-- Natural language processing in workflows
-- Tool-using agents as graph steps
-- Multi-agent coordination via graphs
-- Autonomous decision-making nodes
-
-### Basic Pattern
-
-```python
-from spark.nodes import Node
-from spark.agents import Agent, AgentConfig
-from spark.models.openai import OpenAIModel
-from spark.tools.decorator import tool
-from spark.nodes.types import ExecutionContext
-
-@tool
-def search_web(query: str) -> str:
-    """Search the web for information."""
-    return search_api(query)
-
-class AgentNode(Node):
-    """Node that wraps an LLM agent."""
-
-    def __init__(self, model, tools, **kwargs):
-        super().__init__(**kwargs)
-
-        # Create agent configuration
-        agent_config = AgentConfig(
-            model=model,
-            tools=tools,
-            system_prompt="You are a helpful assistant."
-        )
-
-        # Initialize agent
-        self.agent = Agent(config=agent_config)
-
-    async def process(self, context: ExecutionContext) -> dict:
-        # Extract query from inputs
-        query = context.inputs.content.get('query', '')
-
-        # Run agent
-        result = await self.agent.run(query)
-
-        # Return agent output
-        return {
-            'response': result.output,
-            'tool_calls': len(result.tool_trace)
-        }
-
-# Usage in graph
-model = OpenAIModel(model_id="gpt-4o")
-agent_node = AgentNode(model=model, tools=[search_web])
-
-graph = Graph(start=agent_node)
-result = await graph.run(Task(inputs=NodeMessage(content={'query': 'What is the weather?'})))
-```
-
-### Multi-Agent Workflows
-
-```python
-class ResearcherAgentNode(Node):
-    """Agent specialized in research."""
-
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self.agent = Agent(config=AgentConfig(
-            model=OpenAIModel(model_id="gpt-4o"),
-            system_prompt="You are a research specialist.",
-            tools=[search_web, read_article]
-        ))
-
-    async def process(self, context: ExecutionContext) -> dict:
-        topic = context.inputs.content['topic']
-        research = await self.agent.run(f"Research: {topic}")
-        return {'research': research.output}
-
-class WriterAgentNode(Node):
-    """Agent specialized in writing."""
-
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self.agent = Agent(config=AgentConfig(
-            model=OpenAIModel(model_id="gpt-4o"),
-            system_prompt="You are a technical writer."
-        ))
-
-    async def process(self, context: ExecutionContext) -> dict:
-        research = context.inputs.content['research']
-        article = await self.agent.run(f"Write article based on: {research}")
-        return {'article': article.output}
-
-# Create pipeline
-researcher = ResearcherAgentNode()
-writer = WriterAgentNode()
-
-researcher >> writer
-
-graph = Graph(start=researcher)
-```
-
-### Agent State in Graphs
-
-```python
-class StatefulAgentNode(Node):
-    """Agent that maintains conversation state."""
-
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self.agent = Agent(config=AgentConfig(
-            model=OpenAIModel(model_id="gpt-4o"),
-            system_prompt="You are a helpful assistant."
-        ))
-
-    async def process(self, context: ExecutionContext) -> dict:
-        query = context.inputs.content['query']
-
-        # Agent maintains conversation history internally
-        result = await self.agent.run(query)
-
-        # Can checkpoint agent state
-        checkpoint = self.agent.checkpoint()
-        context.state['agent_checkpoint'] = checkpoint
-
-        return {'response': result.output}
-```
-
-### Coordination via Graph State
-
-```python
-class CollaborativeAgentNode(Node):
-    """Agent that coordinates via graph state."""
-
-    def __init__(self, role, **kwargs):
-        super().__init__(**kwargs)
-        self.role = role
-        self.agent = Agent(config=AgentConfig(
-            model=OpenAIModel(model_id="gpt-4o"),
-            system_prompt=f"You are a {role} agent."
-        ))
-
-    async def process(self, context: ExecutionContext) -> dict:
-        # Read shared context from graph state
-        topic = await context.graph_state.get('topic')
-        other_findings = await context.graph_state.get('findings', [])
-
-        # Agent processes with awareness of other agents
-        result = await self.agent.run(
-            f"Topic: {topic}. Other findings: {other_findings}. Your analysis:"
-        )
-
-        # Update shared graph state
-        async with context.graph_state.transaction() as state:
-            findings = state.get('findings', [])
-            findings.append({
-                'role': self.role,
-                'result': result.output
-            })
-            state['findings'] = findings
-
-        return {'done': True}
-
-# Create multi-agent system
-analyst = CollaborativeAgentNode(role='analyst')
-critic = CollaborativeAgentNode(role='critic')
-synthesizer = CollaborativeAgentNode(role='synthesizer')
-
-graph = Graph(start=analyst, initial_state={'topic': 'AI safety'})
-analyst >> critic >> synthesizer
-```
+1. **HumanNode**: Human-in-the-loop patterns
+2. **RpcNode**: JSON-RPC servers
+3. **RemoteRpcProxyNode**: RPC clients
+4. **SubgraphNode**: Nested graph composition
+5. **Custom Base Classes**: When to create your own
 
 ---
 
@@ -889,6 +704,185 @@ class CachedNode(Node):
         # or manually apply wrapper
         super().__init__(**kwargs)
 ```
+
+### Wrap Agent to Node
+
+Create a custome `AgentNode` that wraps the Spark `Agent` class to integrate LLM-powered agents into graphs as nodes.
+
+**Location**: Typically created in application code by wrapping `spark.agents.Agent`
+
+**Use Cases**:
+- Natural language processing in workflows
+- Tool-using agents as graph steps
+- Multi-agent coordination via graphs
+- Autonomous decision-making nodes
+
+### Basic Pattern
+
+```python
+from spark.nodes import Node
+from spark.agents import Agent, AgentConfig
+from spark.models.openai import OpenAIModel
+from spark.tools.decorator import tool
+from spark.nodes.types import ExecutionContext
+
+@tool
+def search_web(query: str) -> str:
+    """Search the web for information."""
+    return search_api(query)
+
+class AgentNode(Node):
+    """Node that wraps an LLM agent."""
+
+    def __init__(self, model, tools, **kwargs):
+        super().__init__(**kwargs)
+
+        # Create agent configuration
+        agent_config = AgentConfig(
+            model=model,
+            tools=tools,
+            system_prompt="You are a helpful assistant."
+        )
+
+        # Initialize agent
+        self.agent = Agent(config=agent_config)
+
+    async def process(self, context: ExecutionContext) -> dict:
+        # Extract query from inputs
+        query = context.inputs.content.get('query', '')
+
+        # Run agent
+        result = await self.agent.run(query)
+
+        # Return agent output
+        return {
+            'response': result.output,
+            'tool_calls': len(result.tool_trace)
+        }
+
+# Usage in graph
+model = OpenAIModel(model_id="gpt-4o")
+agent_node = AgentNode(model=model, tools=[search_web])
+
+graph = Graph(start=agent_node)
+result = await graph.run(Task(inputs=NodeMessage(content={'query': 'What is the weather?'})))
+```
+
+### Multi-Agent Workflows
+
+```python
+class ResearcherAgentNode(Node):
+    """Agent specialized in research."""
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.agent = Agent(config=AgentConfig(
+            model=OpenAIModel(model_id="gpt-4o"),
+            system_prompt="You are a research specialist.",
+            tools=[search_web, read_article]
+        ))
+
+    async def process(self, context: ExecutionContext) -> dict:
+        topic = context.inputs.content['topic']
+        research = await self.agent.run(f"Research: {topic}")
+        return {'research': research.output}
+
+class WriterAgentNode(Node):
+    """Agent specialized in writing."""
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.agent = Agent(config=AgentConfig(
+            model=OpenAIModel(model_id="gpt-4o"),
+            system_prompt="You are a technical writer."
+        ))
+
+    async def process(self, context: ExecutionContext) -> dict:
+        research = context.inputs.content['research']
+        article = await self.agent.run(f"Write article based on: {research}")
+        return {'article': article.output}
+
+# Create pipeline
+researcher = ResearcherAgentNode()
+writer = WriterAgentNode()
+
+researcher >> writer
+
+graph = Graph(start=researcher)
+```
+
+### Agent State in Graphs
+
+```python
+class StatefulAgentNode(Node):
+    """Agent that maintains conversation state."""
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.agent = Agent(config=AgentConfig(
+            model=OpenAIModel(model_id="gpt-4o"),
+            system_prompt="You are a helpful assistant."
+        ))
+
+    async def process(self, context: ExecutionContext) -> dict:
+        query = context.inputs.content['query']
+
+        # Agent maintains conversation history internally
+        result = await self.agent.run(query)
+
+        # Can checkpoint agent state
+        checkpoint = self.agent.checkpoint()
+        context.state['agent_checkpoint'] = checkpoint
+
+        return {'response': result.output}
+```
+
+### Coordination via Graph State
+
+```python
+class CollaborativeAgentNode(Node):
+    """Agent that coordinates via graph state."""
+
+    def __init__(self, role, **kwargs):
+        super().__init__(**kwargs)
+        self.role = role
+        self.agent = Agent(config=AgentConfig(
+            model=OpenAIModel(model_id="gpt-4o"),
+            system_prompt=f"You are a {role} agent."
+        ))
+
+    async def process(self, context: ExecutionContext) -> dict:
+        # Read shared context from graph state
+        topic = await context.graph_state.get('topic')
+        other_findings = await context.graph_state.get('findings', [])
+
+        # Agent processes with awareness of other agents
+        result = await self.agent.run(
+            f"Topic: {topic}. Other findings: {other_findings}. Your analysis:"
+        )
+
+        # Update shared graph state
+        async with context.graph_state.transaction() as state:
+            findings = state.get('findings', [])
+            findings.append({
+                'role': self.role,
+                'result': result.output
+            })
+            state['findings'] = findings
+
+        return {'done': True}
+
+# Create multi-agent system
+analyst = CollaborativeAgentNode(role='analyst')
+critic = CollaborativeAgentNode(role='critic')
+synthesizer = CollaborativeAgentNode(role='synthesizer')
+
+graph = Graph(start=analyst, initial_state={'topic': 'AI safety'})
+analyst >> critic >> synthesizer
+```
+
+---
+
 
 ---
 

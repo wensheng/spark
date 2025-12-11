@@ -4,6 +4,7 @@ parent: API
 nav_order: 7
 ---
 # Spec Kit Classes
+---
 
 This document provides comprehensive API reference for Spark's Spec Kit system. These classes enable graph serialization, code generation, analysis, and manipulation through comprehensive specification models.
 

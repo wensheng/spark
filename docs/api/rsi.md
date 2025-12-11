@@ -4,6 +4,7 @@ parent: API
 nav_order: 6
 ---
 # RSI Classes
+---
 
 This document provides comprehensive API reference for Spark's RSI (Recursive Self-Improvement) system. These classes enable autonomous graph optimization through performance analysis, hypothesis generation, automated testing, safe deployment, and continuous learning.
 

@@ -1,13 +1,10 @@
 ---
-title: Reasoning Strategies Reference
-parent: Graph
+title: Reasoning Strategies
+parent: Agent
 nav_order: 3
 ---
-# Reasoning Strategies Reference
-
-This reference covers Spark's pluggable reasoning strategies for structuring agent thought processes and decision-making patterns.
-
-## Overview
+# Reasoning Strategies
+---
 
 Reasoning strategies define how agents structure their thinking, plan actions, and approach problem-solving. Spark provides multiple built-in strategies and a framework for creating custom reasoning patterns.
 

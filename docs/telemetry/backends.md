@@ -1,11 +1,10 @@
 ---
-title: Telemetry Backends Reference
+title: Telemetry Backends
 parent: Telemetry
 nav_order: 1
 ---
-# Telemetry Backends Reference
-
-## Overview
+# Telemetry Backends
+---
 
 Spark supports multiple telemetry backends for storing and querying observability data. Choose the right backend based on your deployment environment, performance requirements, and integration needs.
 

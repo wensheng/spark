@@ -2,7 +2,8 @@
 title: SpecKit
 nav_order: 13
 ---
-# Specification System
+# Spark Spec Kit
+---
 
 The Spark Spec Kit provides a comprehensive specification and code generation system for serializing, validating, and manipulating graph workflows. At its core, the Spec Kit enables graphs to be represented as structured JSON documents that can be version controlled, shared across environments, and programmatically generated or modified.
 

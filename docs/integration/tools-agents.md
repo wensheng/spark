@@ -4,6 +4,7 @@ parent: Integration
 nav_order: 2
 ---
 # Tools and Agents
+---
 
 This guide covers how to effectively integrate tools with agents, including tool registration, custom tool development, composition patterns, error handling, and performance optimization.
 

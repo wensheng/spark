@@ -4,6 +4,7 @@ parent: Integration
 nav_order: 3
 ---
 # Telemetry and RSI Integration
+---
 
 This guide covers how telemetry and the Recursive Self-Improvement (RSI) system work together to enable autonomous graph optimization through performance monitoring and analysis.
 

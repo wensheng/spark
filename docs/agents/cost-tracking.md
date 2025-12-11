@@ -1,13 +1,10 @@
 ---
-title: Cost Tracking Reference
+title: Cost Tracking
 parent: Agent
 nav_order: 5
 ---
-# Cost Tracking Reference
-
-This reference covers Spark's built-in cost tracking system for monitoring token usage and API costs in agent operations.
-
-## Overview
+# Cost Tracking
+---
 
 Every Spark agent includes automatic cost tracking for LLM API calls. The cost tracking system monitors:
 

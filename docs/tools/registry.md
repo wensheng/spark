@@ -1,13 +1,10 @@
 ---
-title: Tool Registry Reference
+title: Tool Registry
 parent: Tools
 nav_order: 1
 ---
-# Tool Registry Reference
-
-This reference covers the `ToolRegistry` class for managing collections of tools in Spark ADK.
-
-## Overview
+# Tool Registry
+---
 
 The `ToolRegistry` provides a central repository for tool discovery, management, and validation. It serves as the bridge between tool definitions and agent/LLM execution, handling:
 

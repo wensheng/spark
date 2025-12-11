@@ -19,8 +19,6 @@ Welcome to Spark ADK! This section provides everything you need to get started w
 - High-level architecture diagram
 - Core concepts at a glance
 
-**Time to read**: 10 minutes
-
 ### 2. [Installation]({% link docs/introduction/installation.md %})
 Complete guide to installing Spark and its dependencies.
 
@@ -31,8 +29,6 @@ Complete guide to installing Spark and its dependencies.
 - Environment configuration
 - Verification and testing
 - IDE setup recommendations
-
-**Time to complete**: 15-30 minutes (depending on features needed)
 
 ### 3. [Quick Start]({% link docs/introduction/quickstart.md %})
 Hands-on tutorial to build your first Spark applications.
@@ -46,8 +42,6 @@ Hands-on tutorial to build your first Spark applications.
 - Running repository examples
 - Common patterns
 - Next steps
-
-**Time to complete**: 30 minutes
 
 ### 4. [Core Concepts]({% link docs/introduction/concepts.md %})
 Deep dive into Spark's architecture and fundamental abstractions.
@@ -64,56 +58,6 @@ Deep dive into Spark's architecture and fundamental abstractions.
 - Telemetry and observability
 - Governance and policies
 
-**Time to read**: 45 minutes
-
-## Learning Paths
-
-### Quick Path (Get Building Fast)
-1. Read [Overview](overview.md) (10 min)
-2. Do [Installation](installation.md) - basic only (5 min)
-3. Follow [Quick Start](quickstart.md) (30 min)
-4. Start building!
-
-### Complete Path (Full Understanding)
-1. Read [Overview](overview.md) (10 min)
-2. Complete [Installation](installation.md) (15-30 min)
-3. Follow [Quick Start](quickstart.md) (30 min)
-4. Study [Core Concepts](concepts.md) (45 min)
-5. Proceed to [Tutorials](../tutorials/README.md)
-
-### Feature-Specific Paths
-
-**Building Basic Workflows**:
-- Overview → Installation (basic) → Quick Start → Node Guide
-
-**Building AI Agents**:
-- Overview → Installation (with OpenAI) → Quick Start (agent sections) → Agent Guide
-
-**Production Systems**:
-- Full Introduction section → Telemetry Guide → Governance Guide → Best Practices
-
-**Autonomous Improvement**:
-- Full Introduction section → RSI Guide → Advanced Tutorials
-
-## Next Steps
-
-After completing this introduction:
-
-- **[Tutorials](../tutorials/README.md)**: Step-by-step guides for common patterns
-- **[Guides](../guides/README.md)**: In-depth documentation for specific features
-- **[Examples](../../examples/)**: 17+ working examples in the repository
-- **[API Reference](../api/README.md)**: Complete API documentation
-
-## Getting Help
-
-- Check [Troubleshooting Guide](../guides/troubleshooting.md) for common issues
-- Review [Examples](../../examples/) for working patterns
-- Open an issue on [GitHub](https://github.com/wensheng/spark/issues)
-
-## Feedback
-
-Found an error or have suggestions? Please open an issue or submit a pull request!
-
 ---
 
-**Ready to start?** Begin with the [Overview](overview.md) →
+**Ready to start?** Begin with the [Overview]({% link docs/introduction/overview.md %}) →

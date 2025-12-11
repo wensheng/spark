@@ -5,9 +5,7 @@ nav_order: 7
 ---
 # Workspace and Artifacts
 
-This reference covers workspace management and artifact handling for isolated execution environments and file generation in Spark workflows.
-
-## Overview
+---
 
 The **workspace system** provides isolated execution environments for graphs, while the **artifacts system** manages generated files, data, and outputs. Together, they enable:
 - Sandboxed execution with controlled file access

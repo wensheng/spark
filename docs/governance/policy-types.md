@@ -4,6 +4,7 @@ parent: Governance
 nav_order: 2
 ---
 # Policy Types
+---
 
 This guide provides ready-to-use policy patterns for common governance scenarios. Each section includes complete, runnable examples that you can adapt for your use cases.
 

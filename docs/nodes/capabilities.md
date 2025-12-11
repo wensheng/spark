@@ -5,10 +5,6 @@ nav_order: 1
 ---
 # Capabilities System
 
-**Document Type**: Reference Documentation
-**Audience**: Developers adding resilience and control to nodes
-**Related**: [Node Fundamentals](/docs/nodes/fundamentals.md), [Node Configuration](/docs/config/node-config.md)
-
 ---
 
 ## Overview

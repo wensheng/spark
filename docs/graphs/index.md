@@ -2,11 +2,9 @@
 title: Graph
 nav_order: 5
 ---
-# Graph Fundamentals
+# Graph
 
-This reference covers the core concepts and APIs for creating and running graphs in Spark ADK.
-
-## Overview
+---
 
 A **Graph** in Spark is a workflow composed of connected nodes. Graphs orchestrate node execution, manage data flow between nodes, and provide lifecycle management. The graph system supports both sequential execution for simple workflows and concurrent execution for long-running agents.
 

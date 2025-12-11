@@ -4,6 +4,7 @@ parent: Integration
 nav_order: 1
 ---
 # Multi-Agent Coordination
+---
 
 This guide covers advanced patterns for coordinating multiple AI agents within Spark workflows, enabling sophisticated multi-agent systems with specialization, collaboration, and consensus mechanisms.
 

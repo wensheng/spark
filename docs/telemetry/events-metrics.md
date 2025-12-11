@@ -1,11 +1,10 @@
 ---
-title: Events and Metrics Reference
+title: Events and Metrics
 parent: Telemetry
 nav_order: 3
 ---
-# Events and Metrics Reference
-
-## Overview
+# Events and Metrics
+---
 
 Events and metrics complement traces and spans by capturing discrete lifecycle moments and numerical measurements. **Events** record things that happen during execution, while **metrics** track quantifiable measurements over time.
 

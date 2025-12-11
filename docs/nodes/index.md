@@ -3,14 +3,8 @@ title: Node
 nav_order: 4
 ---
 
-# Node Fundamentals
-
-**Document Type**: Reference Documentation
-**Audience**: Developers building custom nodes in Spark ADK
-**Related**: [Node System Architecture](/docs/architecture/node-system.md), [Execution Context](/docs/nodes/execution-context.md), [Capabilities](/docs/nodes/capabilities.md)
-
+# Node
 ---
-
 ## Overview
 
 Nodes are the fundamental building blocks of Spark workflows. Each node represents an independent processing unit in the Actor Model, capable of receiving inputs, performing computation, and producing outputs. Nodes can be connected via edges to form directed graphs that define complete workflows.

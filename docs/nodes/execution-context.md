@@ -5,10 +5,6 @@ nav_order: 2
 ---
 # Execution Context
 
-**Document Type**: Reference Documentation
-**Audience**: Developers working with node execution and state
-**Related**: [Node Fundamentals](/docs/nodes/fundamentals.md), [Graph State](/docs/graphs/graph-state.md)
-
 ---
 
 ## Overview

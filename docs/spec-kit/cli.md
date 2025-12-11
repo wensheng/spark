@@ -4,6 +4,7 @@ parent: SpecKit
 nav_order: 3
 ---
 # Spec CLI Tool
+---
 
 The `spark-spec` command-line tool provides comprehensive operations for working with graph specifications, missions, simulations, schemas, plans, approvals, and policies. It's the primary interface for spec operations in CI/CD pipelines, development workflows, and production deployments.
 

@@ -4,6 +4,7 @@ parent: Integration
 nav_order: 6
 ---
 # Checkpointing and Recovery
+---
 
 This guide covers checkpointing and recovery strategies for building resilient long-running workflows and agents that can recover from failures and interruptions.
 

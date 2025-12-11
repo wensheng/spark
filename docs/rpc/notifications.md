@@ -4,6 +4,7 @@ parent: RPC
 nav_order: 2
 ---
 # Server Notifications
+---
 
 Server notifications enable RpcNode servers to push real-time updates to WebSocket clients without waiting for a request. This is essential for event-driven architectures, real-time dashboards, and collaborative systems.
 

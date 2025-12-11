@@ -4,10 +4,7 @@ parent: Graph
 nav_order: 1
 ---
 # Edge Conditions and Flow Control
-
-This reference covers edge conditions, conditional routing, and flow control patterns in Spark graphs.
-
-## Overview
+---
 
 **Edges** connect nodes in a graph and determine execution flow. Spark supports both unconditional edges (always follow) and conditional edges (follow based on node outputs). Edge conditions enable branching, looping, and complex workflow patterns.
 

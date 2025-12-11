@@ -1,13 +1,10 @@
 ---
-title: NodeConfig Reference
+title: NodeConfig
 parent: Config
 nav_order: 2
 ---
-# NodeConfig Reference
-
-This document provides a complete reference for `NodeConfig`, the configuration class used to customize node behavior in Spark.
-
-## Overview
+# NodeConfig
+---
 
 `NodeConfig` is a Pydantic model that encapsulates all configurable aspects of a node's behavior including retry policies, timeouts, rate limiting, circuit breakers, idempotency, state management, hooks, and custom settings.
 

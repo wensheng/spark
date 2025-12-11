@@ -4,6 +4,7 @@ parent: SpecKit
 nav_order: 5
 ---
 # Graph Analysis
+---
 
 The Spark graph analyzer (`spark/kit/analysis.py`) provides comprehensive analysis of graph specifications, including complexity metrics, topology analysis, bottleneck identification, and optimization suggestions. This enables developers to understand, optimize, and validate graph structures before deployment.
 

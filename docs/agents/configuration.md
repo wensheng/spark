@@ -1,13 +1,10 @@
 ---
-title: Agent Configuration Reference
+title: Agent Configuration
 parent: Agent
 nav_order: 1
 ---
-# Agent Configuration Reference
-
-This reference provides complete documentation for configuring Spark agents using `AgentConfig`.
-
-## Overview
+# Agent Configuration
+---
 
 `AgentConfig` is the primary configuration object for agents, providing validation and type safety for all agent settings. Configuration includes:
 

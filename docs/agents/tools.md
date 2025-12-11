@@ -1,13 +1,10 @@
 ---
-title: Agent Tools Reference
+title: Agent Tools
 parent: Agent
 nav_order: 4
 ---
-# Agent Tools Reference
-
-This reference covers tool integration with Spark agents, including registration, execution, and advanced patterns.
-
-## Overview
+# Agent Tools
+---
 
 Tools extend agent capabilities by allowing them to interact with external systems, APIs, databases, and services. Agents automatically determine when to call tools, execute them, and incorporate results into their reasoning.
 

@@ -1,13 +1,10 @@
 ---
-title: TelemetryConfig Reference
+title: TelemetryConfig
 parent: Config
 nav_order: 4
 ---
-# TelemetryConfig Reference
-
-This document provides a complete reference for `TelemetryConfig`, the configuration class used to customize telemetry collection and export in Spark.
-
-## Overview
+# TelemetryConfig
+---
 
 `TelemetryConfig` is a dataclass that controls telemetry behavior including backend selection, sampling rates, export intervals, retention policies, and instrumentation options. Telemetry provides comprehensive observability for graph and node execution.
 

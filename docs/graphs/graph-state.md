@@ -1,13 +1,11 @@
 ---
-title: Graph State Reference
+title: Graph State
 parent: Graph
 nav_order: 2
 ---
-# Graph State Reference
+# Graph State
 
-This reference covers the graph state system for managing shared data across nodes in Spark workflows.
-
-## Overview
+---
 
 **Graph state** is a thread-safe, transactional key-value store shared across all nodes in a graph. It provides a centralized location for data that needs to be accessed or modified by multiple nodes, such as counters, aggregated results, or workflow coordination flags.
 

@@ -2,11 +2,8 @@
 title: Agent
 nav_order: 6
 ---
-# Agent Fundamentals
-
-This reference covers the core concepts and fundamental operations for working with Spark agents.
-
-## Overview
+# Agent
+---
 
 Spark agents are production-ready LLM-powered components that orchestrate conversations, tool execution, and reasoning. Agents provide a high-level interface for building autonomous AI systems with support for:
 

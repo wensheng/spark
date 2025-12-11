@@ -1,13 +1,10 @@
 ---
-title: Agent Error Handling Reference
+title: Agent Error Handling
 parent: Agent
 nav_order: 7
 ---
-# Agent Error Handling Reference
-
-This reference covers error handling patterns, exception types, and fault tolerance strategies for Spark agents.
-
-## Overview
+# Agent Error Handling
+---
 
 Spark agents provide comprehensive error handling with specific exception types, structured error propagation, and recovery patterns. The error handling system includes:
 

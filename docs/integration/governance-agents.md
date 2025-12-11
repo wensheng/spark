@@ -4,6 +4,7 @@ parent: Integration
 nav_order: 5
 ---
 # Governance and Agents
+---
 
 This guide covers integrating Spark's governance system with agents to enforce policies, manage costs, implement approval workflows, ensure security, and maintain compliance.
 

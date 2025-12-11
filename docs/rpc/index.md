@@ -2,7 +2,8 @@
 title: RPC
 nav_order: 10
 ---
-# RPC System Overview
+# RPC
+---
 
 The Spark RPC system enables distributed workflow architectures by exposing nodes as remote services via JSON-RPC 2.0. This allows graphs to span multiple processes, machines, or data centers while maintaining the simplicity of Spark's node-based programming model.
 

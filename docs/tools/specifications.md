@@ -1,13 +1,10 @@
 ---
-title: Tool Specifications Reference
+title: Tool Specifications
 parent: Tools
 nav_order: 4
 ---
-# Tool Specifications Reference
-
-This reference covers the structure and format of tool specifications in Spark ADK, including JSON schema generation, provider-specific formats, and validation.
-
-## Overview
+# Tool Specifications
+---
 
 Tool specifications are JSON documents that describe tools to LLMs and agents. They define:
 

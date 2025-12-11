@@ -4,6 +4,7 @@ parent: Governance
 nav_order: 1
 ---
 # Policy Rules & Effects
+---
 
 This guide covers the detailed structure of PolicyRule, how to define conditions and constraints, the three policy effects, and how rules are evaluated by the PolicyEngine.
 

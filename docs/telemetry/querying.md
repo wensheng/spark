@@ -1,11 +1,10 @@
 ---
-title: Querying Telemetry Reference
+title: Querying Telemetry
 parent: Telemetry
 nav_order: 4
 ---
-# Querying Telemetry Reference
-
-## Overview
+# Querying Telemetry
+---
 
 Spark provides a comprehensive query API for retrieving and analyzing telemetry data. This document covers all query operations, filtering options, and advanced patterns for traces, spans, events, and metrics.
 

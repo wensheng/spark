@@ -4,6 +4,7 @@ parent: SpecKit
 nav_order: 2
 ---
 # Serialization & Deserialization
+---
 
 Spark provides bidirectional conversion between runtime Python objects (graphs, nodes, agents) and structured JSON specifications. This serialization system enables graph persistence, version control, portability, and programmatic manipulation.
 

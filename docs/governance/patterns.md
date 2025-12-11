@@ -4,6 +4,7 @@ parent: Governance
 nav_order: 4
 ---
 # Governance Patterns
+---
 
 This guide presents enterprise-grade governance patterns for production deployments. These patterns demonstrate how to combine policies, approvals, and organizational controls into comprehensive governance frameworks.
 

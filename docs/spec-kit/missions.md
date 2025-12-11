@@ -4,6 +4,7 @@ parent: SpecKit
 nav_order: 6
 ---
 # Mission System
+---
 
 The Spark Mission System provides high-level orchestration and deployment packaging for complete agentic workflows. A **Mission** is more than just a graph - it's a complete deployable package including the graph specification, execution plan, state schema, deployment metadata, and simulation configuration.
 

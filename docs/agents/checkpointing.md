@@ -1,13 +1,10 @@
 ---
-title: Agent Checkpointing Reference
+title: Agent Checkpointing
 parent: Agent
 nav_order: 6
 ---
-# Agent Checkpointing Reference
-
-This reference covers Spark's agent checkpointing system for saving and restoring complete agent state.
-
-## Overview
+# Agent Checkpointing
+---
 
 Agent checkpointing enables saving and restoring complete agent state, including configuration, conversation history, tool traces, cost tracking data, and reasoning strategy state. Checkpoints support:
 

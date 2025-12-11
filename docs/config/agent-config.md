@@ -1,13 +1,10 @@
 ---
-title: AgentConfig Reference
+title: AgentConfig
 parent: Config
 nav_order: 3
 ---
-# AgentConfig Reference
-
-This document provides a complete reference for `AgentConfig`, the configuration class used to customize agent behavior in Spark.
-
-## Overview
+# AgentConfig
+---
 
 `AgentConfig` is a Pydantic model that extends `NodeConfig` and provides agent-specific configuration including model settings, tools, memory management, reasoning strategies, output modes, and validation rules.
 

@@ -1,13 +1,10 @@
 ---
-title: RSIMetaGraphConfig Reference
+title: RSIMetaGraphConfig
 parent: Config
 nav_order: 5
 ---
-# RSIMetaGraphConfig Reference
-
-This document provides a complete reference for `RSIMetaGraphConfig`, the configuration class used to customize Recursive Self-Improvement (RSI) behavior in Spark.
-
-## Overview
+# RSIMetaGraphConfig
+---
 
 `RSIMetaGraphConfig` is a dataclass that controls RSI meta-graph behavior including analysis settings, hypothesis generation, testing parameters, deployment strategies, and safety thresholds. The RSI system enables graphs to autonomously analyze, improve, and deploy optimizations.
 

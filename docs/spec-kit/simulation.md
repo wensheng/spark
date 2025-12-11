@@ -4,6 +4,7 @@ parent: SpecKit
 nav_order: 7
 ---
 # Simulation System
+---
 
 The Spark Simulation System enables testing of agentic workflows without external dependencies. By overriding tool implementations with static responses or custom handlers, you can test complex workflows in isolation, validate behavior, and iterate quickly without API costs or external service requirements.
 

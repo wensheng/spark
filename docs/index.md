@@ -1,12 +1,12 @@
 ---
-title: Spark Documentation
+title: Home
 nav_order: 1
 ---
-# Spark: AI Development Kit
+# Spark ADK (AI Development Kit)
 
-**Spark** is a Python AI Development Kit (ADK) for building production-grade agentic workflows. It uses a **node-and-graph architecture** to orchestrate autonomous agents, combining the flexibility of the Actor Model with the power of Large Language Models (LLMs).
+**Spark** is a Python AI Development Kit (ADK) for building production-grade AI agents or agentic systems. It uses advanced graph architecture to orchestrate autonomous agents, combining the flexibility of the Actor Model with the power of Large Language Models (LLMs).
 
-Spark goes beyond simple chains, offering a complete ecosystem for building, observing, and **self-improving** AI applications. With built-in support for resilience policies, telemetry, governance, and recursive self-improvement (RSI), Spark enables developers to create sophisticated AI systems that can autonomously optimize themselves over time.
+Spark goes beyond simple LLM chains or workflows, offering a complete ecosystem for building, observing, and **self-improving** AI applications. With built-in support for resilience policies, telemetry, governance, and recursive self-improvement (RSI), Spark provides enterprise-grade capabilities including distributed state management, checkpointing, human-in-the-loop workflows, and multi-agent coordination—all designed to scale from prototypes to production systems.
 
 ## Table of Contents
 

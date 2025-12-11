@@ -1,13 +1,10 @@
 ---
-title: Memory Management Reference
+title: Memory Management
 parent: Agent
 nav_order: 2
 ---
-# Memory Management Reference
-
-This reference covers Spark's memory management system for maintaining conversation history in agents.
-
-## Overview
+# Memory Management
+---
 
 Memory management in Spark agents controls how conversation history is stored, accessed, and managed over time. Different memory policies allow agents to handle conversations of varying lengths while balancing context preservation with token efficiency and cost.
 

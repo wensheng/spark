@@ -4,10 +4,7 @@ parent: Graph
 nav_order: 5
 ---
 # Graph Checkpointing
-
-This reference covers checkpointing and recovery mechanisms for Spark graphs, enabling fault tolerance and debugging capabilities.
-
-## Overview
+---
 
 **Graph checkpointing** captures the complete state of a graph at specific points during execution, allowing:
 - Recovery from failures

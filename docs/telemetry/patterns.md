@@ -4,8 +4,7 @@ parent: Telemetry
 nav_order: 5
 ---
 # Telemetry Patterns and Best Practices
-
-## Overview
+---
 
 This document provides practical patterns, recipes, and best practices for using Spark's telemetry system effectively. Learn how to analyze performance, detect bottlenecks, monitor costs, build dashboards, and integrate with observability platforms.
 

@@ -5,10 +5,6 @@ nav_order: 4
 ---
 # Channels & Messaging
 
-**Document Type**: Reference Documentation
-**Audience**: Developers working with long-running nodes and inter-node communication
-**Related**: [Node Fundamentals](/docs/nodes/fundamentals.md), [Execution Modes](/docs/graphs/execution-modes.md)
-
 ---
 
 ## Overview

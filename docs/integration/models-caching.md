@@ -4,6 +4,7 @@ parent: Integration
 nav_order: 7
 ---
 # Models and Caching
+---
 
 This guide covers LLM response caching across model providers, including configuration, cache sharing, invalidation strategies, cost analysis, and best practices for development vs. production environments.
 

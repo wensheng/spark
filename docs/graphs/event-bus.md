@@ -1,13 +1,10 @@
 ---
-title: Event Bus Reference
+title: Event Bus
 parent: Graph
 nav_order: 4
 ---
-# Event Bus Reference
-
-This reference covers the graph event system for observability, monitoring, and reactive programming in Spark workflows.
-
-## Overview
+# Event Bus
+---
 
 The **GraphEventBus** provides a publish-subscribe system for graph and node lifecycle events. It enables:
 - Monitoring graph execution in real-time

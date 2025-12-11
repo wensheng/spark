@@ -2,11 +2,8 @@
 title: Tools 
 nav_order: 7
 ---
-# Tool Fundamentals Reference
-
-This reference covers the fundamental concepts and patterns for creating and using tools in Spark ADK.
-
-## Overview
+# Tools
+---
 
 Spark's tools system provides a decorator-based approach to creating LLM-callable tools. The `@tool` decorator transforms ordinary Python functions into tools that can be:
 

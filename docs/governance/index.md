@@ -2,7 +2,8 @@
 title: Governance
 nav_order: 12
 ---
-# Governance Overview
+# Governance
+---
 
 Spark's governance system provides policy-based control over agent and graph behavior, enabling organizations to enforce security, compliance, and operational policies at runtime. The system uses a declarative approach where policies are defined as rules that are evaluated before critical operations execute.
 

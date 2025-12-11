@@ -1,11 +1,10 @@
 ---
-title: Traces and Spans Reference
+title: Traces and Spans
 parent: Telemetry
 nav_order: 2
 ---
-# Traces and Spans Reference
-
-## Overview
+# Traces and Spans
+---
 
 Traces and spans form the hierarchical structure for tracking workflow execution in Spark. A **trace** represents a complete workflow execution from start to finish, while **spans** represent individual operations within that trace.
 

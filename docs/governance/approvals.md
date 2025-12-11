@@ -4,6 +4,7 @@ parent: Governance
 nav_order: 3
 ---
 # Approval Workflows
+---
 
 This guide covers the human-in-the-loop approval system for governance policies. When a policy rule uses `PolicyEffect.REQUIRE_APPROVAL`, the system captures approval requests and enables human review before operations proceed.
 

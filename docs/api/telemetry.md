@@ -1,9 +1,10 @@
 ---
-title: Telemetry Classes API Reference
+title: Telemetry Classes
 parent: API
 nav_order: 8
 ---
-# Telemetry Classes API Reference
+# Telemetry Classes
+---
 
 This document provides the complete API reference for Spark's telemetry system, including the TelemetryManager, configuration, data models (Trace, Span, Event, Metric), and backend implementations.
 

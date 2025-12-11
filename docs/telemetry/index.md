@@ -2,9 +2,8 @@
 title: Telemetry
 nav_order: 9
 ---
-# Telemetry System Overview
-
-## Introduction
+# Telemetry
+---
 
 Spark's telemetry system provides comprehensive observability for graph and node execution. It automatically captures execution traces, spans, events, and metrics, enabling performance analysis, debugging, monitoring, and autonomous improvement through the RSI (Recursive Self-Improvement) system.
 

@@ -2,7 +2,8 @@
 title: API
 nav_order: 16
 ---
-# Core Classes
+# Core Spark API
+---
 
 This document provides comprehensive API reference for Spark's core classes. These classes form the foundation of the framework and are essential for building agentic workflows.
 

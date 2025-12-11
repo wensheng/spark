@@ -1,9 +1,10 @@
 ---
-title: Tool Classes API Reference
+title: Tool Classes
 parent: API
 nav_order: 3
 ---
-# Tool Classes API Reference
+# Tool Classes
+---
 
 This document provides the complete API reference for Spark's tool system, including the @tool decorator, BaseTool interface, ToolRegistry, and type definitions.
 

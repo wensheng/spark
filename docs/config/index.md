@@ -2,11 +2,8 @@
 title: Config
 nav_order: 15
 ---
-# Config - Environment Variables
-
-This document describes environment variables used by Spark to configure runtime behavior.
-
-## Overview
+# Config
+---
 
 Spark uses environment variables for configuration that typically varies between environments (development, staging, production) or contains sensitive information like API keys. Environment variables take precedence over default values but are often overridden by explicit configuration in code.
 
