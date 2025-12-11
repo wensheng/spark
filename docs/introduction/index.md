@@ -58,6 +58,8 @@ Deep dive into Spark's architecture and fundamental abstractions.
 - Telemetry and observability
 - Governance and policies
 
----
+## Feedback
+
+Found an error or have suggestions? Please open an issue or submit a pull request!
 
 **Ready to start?** Begin with the [Overview]({% link docs/introduction/overview.md %}) →

@@ -7,9 +7,7 @@ nav_order: 3
 
 ## What is Spark ADK?
 
-Spark is a Python AI Development Kit (ADK) for building agentic workflows using a **node-and-graph architecture**. It provides a comprehensive set of abstractions for creating autonomous AI agents that can be composed into complex workflows, with production-ready features for observability, reliability, and continuous improvement.
-
-Spark is designed for developers who need to build sophisticated AI-powered systems that go beyond simple LLM calls - systems that require orchestration, state management, error handling, and the ability to autonomously improve over time.
+Spark is a Python AI Development Kit (ADK) for building agents, workflows, and agentic systems. It provides a comprehensive set of abstractions for creating autonomous AI agents that can be composed into complex workflows, with production-ready features for observability, reliability, and continuous improvement. It is designed for developers who need to build sophisticated AI-powered systems that go beyond simple LLM calls - systems that require orchestration, state management, error handling, and the ability to autonomously improve over time.
 
 ## Key Features
 
@@ -71,7 +69,6 @@ Spark is designed for developers who need to build sophisticated AI-powered syst
 ## Use Cases and Applications
 
 ### Autonomous Agents
-Build intelligent agents that can:
 - Research and analyze information by calling search and analysis tools
 - Write and execute code to solve problems
 - Interact with external APIs and services
@@ -79,7 +76,6 @@ Build intelligent agents that can:
 - Learn from experience and improve over time
 
 ### Complex Workflows
-Orchestrate sophisticated workflows that:
 - Process data through multiple transformation stages
 - Branch based on conditions and business rules
 - Handle errors gracefully with retry policies
@@ -131,6 +127,22 @@ graph TB
         Strategies["Reasoning<br/>ReAct, CoT"]
     end
 
+    Graphs --> Nodes
+    Graphs --> State
+    Nodes --> Channels
+    Agent --> Tools
+    Agent --> Memory
+    Agent --> Strategies
+
+    style Nodes fill:#e1f5ff
+    style Graphs fill:#e1f5ff
+    style Agent fill:#fff4e1
+```
+
+```mermaid
+graph TB
+    Graphs["Graphs<br/>Workflow orchestration"]
+
     subgraph "Observability"
         Telemetry["Telemetry<br/>Traces, spans, events"]
         Backends["Backends<br/>Memory, SQLite, Postgres, OTLP"]
@@ -151,12 +163,6 @@ graph TB
         Approval["Human Approval<br/>Review workflows"]
     end
 
-    Graphs --> Nodes
-    Graphs --> State
-    Nodes --> Channels
-    Agent --> Tools
-    Agent --> Memory
-    Agent --> Strategies
     Graphs --> Telemetry
     Telemetry --> Backends
     RSI --> Telemetry
@@ -166,9 +172,7 @@ graph TB
     Graphs --> Governance
     Governance --> Approval
 
-    style Nodes fill:#e1f5ff
     style Graphs fill:#e1f5ff
-    style Agent fill:#fff4e1
     style RSI fill:#f0e1ff
     style Telemetry fill:#e1ffe1
 ```
@@ -199,19 +203,11 @@ Comprehensive observability system that automatically instruments graphs and nod
 ### RSI (Recursive Self-Improvement)
 Autonomous system where graphs analyze their own performance, generate improvement hypotheses, test changes safely, and deploy successful modifications.
 
-## Getting Started
-
-Ready to dive in? Head to **[Installation]({% link docs/introduction/installation.md %})**.
-
 ## Community and Support
 
 Spark is under active development. The project follows semantic versioning.
 
 - **Repository**: [GitHub](https://github.com/wensheng/spark)
 - **Issues**: Report bugs and request features via GitHub Issues
-- **Examples**: 17+ working examples in the `examples/` directory
-- **Tests**: 200+ tests with comprehensive coverage
-
-## Next Steps
-
-Continue to [Installation](installation.md) to set up Spark, or jump to [Quick Start](quickstart.md) to start building immediately.
+- **Examples**: lots of working examples in the `examples/` directory
+- **Tests**: comprehensive tests with high coverage
