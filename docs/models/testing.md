@@ -427,7 +427,7 @@ from spark.models.openai import OpenAIModel
 def cached_model():
     """Model with caching for deterministic tests."""
     return OpenAIModel(
-        model_id="gpt-4o-mini",
+        model_id="gpt-5-mini-mini",
         enable_cache=True,
         cache_ttl_seconds=86400,  # 24 hours
         temperature=0.0  # Deterministic
@@ -511,7 +511,7 @@ class SnapshotModel(Model):
         if self.record:
             # Record mode: Call real model and save
             from spark.models.openai import OpenAIModel
-            real_model = OpenAIModel(model_id="gpt-4o-mini")
+            real_model = OpenAIModel(model_id="gpt-5-mini")
             response = await real_model.get_text(messages=messages)
 
             self.snapshots[key] = {
@@ -574,7 +574,7 @@ def create_model_for_env():
     """Create model based on environment."""
     if os.getenv("USE_REAL_MODEL") == "true":
         from spark.models.openai import OpenAIModel
-        return OpenAIModel(model_id="gpt-4o-mini")
+        return OpenAIModel(model_id="gpt-5-mini")
     else:
         from spark.models.testing import EchoModel
         return EchoModel()
@@ -597,7 +597,7 @@ class HybridModel:
     def __init__(self, use_real: bool = False):
         if use_real:
             from spark.models.openai import OpenAIModel
-            self.model = OpenAIModel(model_id="gpt-4o-mini")
+            self.model = OpenAIModel(model_id="gpt-5-mini")
         else:
             from spark.models.testing import EchoModel
             self.model = EchoModel()
@@ -623,7 +623,7 @@ async def test_with_both_models(use_real_model):
     """Test with both mock and real models."""
     if use_real_model:
         from spark.models.openai import OpenAIModel
-        model = OpenAIModel(model_id="gpt-4o-mini", enable_cache=True)
+        model = OpenAIModel(model_id="gpt-5-mini", enable_cache=True)
     else:
         from spark.models.testing import EchoModel
         model = EchoModel()
@@ -659,7 +659,7 @@ async def test_fast_with_echo():
 async def test_accurate_with_cache():
     """Accurate test with cached real model."""
     model = OpenAIModel(
-        model_id="gpt-4o-mini",
+        model_id="gpt-5-mini-mini",
         enable_cache=True
     )
     # First run: API call
@@ -680,7 +680,7 @@ async def test_logic_with_echo():
 @pytest.mark.slow
 @pytest.mark.asyncio
 async def test_quality_with_real():
-    model = OpenAIModel(model_id="gpt-4o-mini")
+    model = OpenAIModel(model_id="gpt-5-mini")
     # Test model quality
 
 # Run fast tests: pytest -m fast

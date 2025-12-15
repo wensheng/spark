@@ -23,7 +23,7 @@ Generates improvement hypotheses using LLM reasoning based on diagnostic reports
 from spark.rsi import HypothesisGeneratorNode
 from spark.models.openai import OpenAIModel
 
-model = OpenAIModel(model_id="gpt-4o")
+model = OpenAIModel(model_id="gpt-5-mini")
 
 generator = HypothesisGeneratorNode(
     model=model,
@@ -69,7 +69,7 @@ analysis_result = await analyzer.run({
 report = analysis_result['report']
 
 # Step 2: Generate hypotheses
-model = OpenAIModel(model_id="gpt-4o")
+model = OpenAIModel(model_id="gpt-5-mini")
 generator = HypothesisGeneratorNode(
     model=model,
     max_hypotheses=3
@@ -346,7 +346,7 @@ experience_db = ExperienceDatabase()
 await experience_db.initialize()
 
 # Step 3: Generate hypotheses
-model = OpenAIModel(model_id="gpt-4o")
+model = OpenAIModel(model_id="gpt-5-mini")
 generator = HypothesisGeneratorNode(
     model=model,
     max_hypotheses=5,

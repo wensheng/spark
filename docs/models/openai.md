@@ -24,7 +24,7 @@ from spark.models.openai import OpenAIModel
 
 # Create model instance
 model = OpenAIModel(
-    model_id="gpt-4o",
+    model_id="gpt-5-mini",
     api_key="sk-..."  # Or set OPENAI_API_KEY environment variable
 )
 
@@ -57,7 +57,7 @@ export OPENAI_API_KEY="sk-..."
 **Direct in Code**:
 ```python
 model = OpenAIModel(
-    model_id="gpt-4o",
+    model_id="gpt-5-mini",
     api_key="sk-..."
 )
 ```
@@ -68,7 +68,7 @@ import os
 with open("openai_key.txt") as f:
     api_key = f.read().strip()
 
-model = OpenAIModel(model_id="gpt-4o", api_key=api_key)
+model = OpenAIModel(model_id="gpt-5-mini", api_key=api_key)
 ```
 
 ### Get API Key
@@ -124,16 +124,16 @@ model = OpenAIModel(
 
 OpenAI offers several model families:
 
-#### GPT-4o (Recommended)
+#### GPT-5-mini (Recommended)
 
 Latest and most capable model family:
 
 ```python
-# GPT-4o - Best performance
-model = OpenAIModel(model_id="gpt-4o")
+# GPT-5-mini - Best performance
+model = OpenAIModel(model_id="gpt-5-mini")
 
-# GPT-4o Mini - Fast and cost-effective
-model = OpenAIModel(model_id="gpt-4o-mini")
+# GPT-5-mini - Fast and cost-effective
+model = OpenAIModel(model_id="gpt-5-mini")
 ```
 
 **Capabilities**:
@@ -185,8 +185,8 @@ model = OpenAIModel(model_id="gpt-3.5-turbo")
 
 | Model | Speed | Cost | Quality | Context | Best For |
 |-------|-------|------|---------|---------|----------|
-| gpt-4o | Fast | Medium | Excellent | 128K | Production agents |
-| gpt-4o-mini | Very Fast | Low | Good | 128K | Development, simple tasks |
+| gpt-5-mini | Fast | Medium | Excellent | 128K | Production agents |
+| gpt-5-mini-mini | Very Fast | Low | Good | 128K | Development, simple tasks |
 | gpt-4-turbo | Medium | High | Excellent | 128K | Complex reasoning |
 | gpt-3.5-turbo | Very Fast | Very Low | Good | 16K | High-volume, simple tasks |
 
@@ -464,7 +464,7 @@ response = await model.get_text(
 
 ## Context Window Management
 
-OpenAI models have context window limits (e.g., 128K tokens for GPT-4o):
+OpenAI models have context window limits (e.g., 128K tokens for GPT-5-mini):
 
 ### Handling Context Window Errors
 
@@ -484,7 +484,7 @@ except ModelContextWindowError as e:
 ```python
 import tiktoken
 
-def count_tokens(text: str, model_id: str = "gpt-4o") -> int:
+def count_tokens(text: str, model_id: str = "gpt-5-mini") -> int:
     """Estimate token count for text."""
     encoding = tiktoken.encoding_for_model(model_id)
     return len(encoding.encode(text))
@@ -654,7 +654,7 @@ model = OpenAIModel(model_id="llama2")
 ### Update Configuration Dynamically
 
 ```python
-model = OpenAIModel(model_id="gpt-4o", temperature=0.7)
+model = OpenAIModel(model_id="gpt-5-mini", temperature=0.7)
 
 # Update configuration
 model.update_config(
@@ -674,7 +674,7 @@ print(f"Current temperature: {config['temperature']}")
 # Development preset: fast and cheap
 def create_dev_model():
     return OpenAIModel(
-        model_id="gpt-4o-mini",
+        model_id="gpt-5-mini-mini",
         temperature=0.7,
         max_tokens=500,
         enable_cache=True
@@ -683,7 +683,7 @@ def create_dev_model():
 # Production preset: high quality
 def create_prod_model():
     return OpenAIModel(
-        model_id="gpt-4o",
+        model_id="gpt-5-mini",
         temperature=0.3,  # More deterministic
         max_tokens=2000,
         enable_cache=False
@@ -760,7 +760,7 @@ For development and testing, enable caching to avoid repeated API calls:
 
 ```python
 model = OpenAIModel(
-    model_id="gpt-4o-mini",
+    model_id="gpt-5-mini-mini",
     enable_cache=True,
     cache_ttl_seconds=3600  # 1 hour
 )
@@ -839,7 +839,7 @@ def search_web(query: str) -> str:
 
 # Create model
 model = OpenAIModel(
-    model_id="gpt-4o",
+    model_id="gpt-5-mini",
     temperature=0.7,
     max_tokens=2000
 )
@@ -889,7 +889,7 @@ def update_user_preferences(user_id: str, preferences: dict) -> bool:
 
 # Create model with configuration
 model = OpenAIModel(
-    model_id="gpt-4o",
+    model_id="gpt-5-mini",
     temperature=0.3,  # Deterministic for consistency
     max_tokens=1500,
     enable_cache=True,  # Cache during development
@@ -992,21 +992,21 @@ asyncio.run(main())
 ### 1. Use Appropriate Model for Task
 
 ```python
-# Simple tasks: Use GPT-4o-mini
-simple_model = OpenAIModel(model_id="gpt-4o-mini")
+# Simple tasks: Use GPT-5-mini
+simple_model = OpenAIModel(model_id="gpt-5-mini")
 
-# Complex reasoning: Use GPT-4o
-complex_model = OpenAIModel(model_id="gpt-4o")
+# Complex reasoning: Use GPT-5-mini
+complex_model = OpenAIModel(model_id="gpt-5-mini")
 ```
 
 ### 2. Set Temperature Based on Use Case
 
 ```python
 # Factual/deterministic: Low temperature
-factual_model = OpenAIModel(model_id="gpt-4o", temperature=0.0)
+factual_model = OpenAIModel(model_id="gpt-5-mini", temperature=0.0)
 
 # Creative/diverse: Higher temperature
-creative_model = OpenAIModel(model_id="gpt-4o", temperature=1.2)
+creative_model = OpenAIModel(model_id="gpt-5-mini", temperature=1.2)
 ```
 
 ### 3. Always Handle Rate Limits
@@ -1034,13 +1034,13 @@ print(f"Cost: ${total_cost:.6f}")
 ```python
 # Development: Enable caching
 dev_model = OpenAIModel(
-    model_id="gpt-4o-mini",
+    model_id="gpt-5-mini-mini",
     enable_cache=True
 )
 
 # Production: Disable caching
 prod_model = OpenAIModel(
-    model_id="gpt-4o",
+    model_id="gpt-5-mini",
     enable_cache=False
 )
 ```
@@ -1080,7 +1080,7 @@ import os
 os.environ["OPENAI_API_KEY"] = "sk-..."
 
 # Or pass directly
-model = OpenAIModel(model_id="gpt-4o", api_key="sk-...")
+model = OpenAIModel(model_id="gpt-5-mini", api_key="sk-...")
 ```
 
 ### Issue: Rate Limit Exceeded

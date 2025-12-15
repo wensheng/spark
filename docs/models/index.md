@@ -26,7 +26,7 @@ All model providers implement the same core interface:
 from spark.models.openai import OpenAIModel
 
 # Works the same way regardless of provider
-model = OpenAIModel(model_id="gpt-4o")
+model = OpenAIModel(model_id="gpt-5-mini")
 
 messages = [
     {"role": "user", "content": [{"text": "What is the capital of France?"}]}
@@ -46,7 +46,7 @@ from spark.agents import Agent, AgentConfig
 from spark.models.openai import OpenAIModel
 
 # Create agent with OpenAI
-model = OpenAIModel(model_id="gpt-4o")
+model = OpenAIModel(model_id="gpt-5-mini")
 config = AgentConfig(model=model)
 agent = Agent(config=config)
 
@@ -268,7 +268,7 @@ Models are configured at initialization and can be updated dynamically:
 ```python
 # Initial configuration
 model = OpenAIModel(
-    model_id="gpt-4o",
+    model_id="gpt-5-mini",
     api_key="sk-...",
     temperature=0.7,
     max_tokens=1000
@@ -346,12 +346,12 @@ except ModelError as e:
 ### By Use Case
 
 **Production Agents**:
-- OpenAI GPT-4o: Best general performance, wide tool support
+ - OpenAI GPT-5-mini: Best general performance, wide tool support
 - Anthropic Claude: Strong reasoning, long context windows
 - Consider cost, latency, and accuracy trade-offs
 
 **Development/Testing**:
-- OpenAI GPT-4o-mini: Fast and cheap
+ - OpenAI GPT-5-mini: Fast and cheap
 - EchoModel: Free, deterministic testing (see Testing section)
 
 **Enterprise/Compliance**:
@@ -373,8 +373,8 @@ except ModelError as e:
 - OpenAI and Anthropic have the most mature implementations
 
 **Cost Optimization**:
-- Use GPT-4o-mini for simple tasks
-- Use GPT-4o for complex reasoning
+- Use GPT-5-mini for simple tasks
+- Use GPT-5-mini for complex reasoning
 - Enable caching for repeated queries (see Caching section)
 
 ### By Deployment Environment
@@ -440,7 +440,7 @@ def calculate(expression: str) -> float:
     return eval(expression)
 
 # Create model (swap this line to change provider)
-model = OpenAIModel(model_id="gpt-4o")
+model = OpenAIModel(model_id="gpt-5-mini")
 
 # Create agent configuration
 config = AgentConfig(
@@ -501,14 +501,14 @@ except NotImplementedError:
 ```python
 # Development: Fast and cheap
 dev_model = OpenAIModel(
-    model_id="gpt-4o-mini",
+    model_id="gpt-5-mini-mini",
     temperature=0.7,
     enable_cache=True  # Avoid repeated API calls
 )
 
 # Production: High quality
 prod_model = OpenAIModel(
-    model_id="gpt-4o",
+    model_id="gpt-5-mini",
     temperature=0.3,  # More deterministic
     max_tokens=2000,
     enable_cache=False  # Fresh responses
@@ -544,7 +544,7 @@ from spark.models.openai import OpenAIModel
 from spark.models.testing import EchoModel
 
 @pytest.mark.parametrize("model", [
-    OpenAIModel(model_id="gpt-4o-mini"),
+    OpenAIModel(model_id="gpt-5-mini-mini"),
     EchoModel(),  # Fast, free testing
 ])
 async def test_agent_with_different_models(model):

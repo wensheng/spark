@@ -219,7 +219,7 @@ def calculate(expression: str) -> str:
         return f"Error: {str(e)}"
 
 # Create model and agent
-model = OpenAIModel(model_id="gpt-4o-mini")
+model = OpenAIModel(model_id="gpt-5-mini-mini")
 
 config = AgentConfig(
     model=model,
@@ -265,7 +265,7 @@ Add conversation memory to maintain context across multiple interactions:
 from spark.agents import Agent, AgentConfig
 from spark.models.openai import OpenAIModel
 
-model = OpenAIModel(model_id="gpt-4o-mini")
+model = OpenAIModel(model_id="gpt-5-mini-mini")
 
 config = AgentConfig(
     model=model,
@@ -456,7 +456,7 @@ def search(query: str) -> str:
     """Search for information."""
     return search_web(query)
 
-model = OpenAIModel(model_id="gpt-4o")
+model = OpenAIModel(model_id="gpt-5-mini")
 
 config = AgentConfig(
     model=model,

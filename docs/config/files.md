@@ -70,11 +70,11 @@ mkdir -p ~/.spark/{policies,telemetry,checkpoints,cache}
 {
   "_comment": "Pricing per 1M tokens (USD)",
   "openai": {
-    "gpt-4o": {
+    "gpt-5-mini": {
       "input": 5.00,
       "output": 15.00
     },
-    "gpt-4o-mini": {
+    "gpt-5-mini-mini": {
       "input": 0.15,
       "output": 0.60
     }
@@ -432,7 +432,7 @@ cost_engine = load_policy_file("~/.spark/policies/cost_policy.json")
   "config": {
     "model": {
       "type": "OpenAIModel",
-      "model_id": "gpt-4o"
+      "model_id": "gpt-5-mini"
     },
     "system_prompt": "You are a helpful assistant.",
     "max_steps": 100,
@@ -463,7 +463,7 @@ cost_engine = load_policy_file("~/.spark/policies/cost_policy.json")
   "cost_tracking": {
     "calls": [
       {
-        "model_id": "gpt-4o",
+        "model_id": "gpt-5-mini",
         "input_tokens": 150,
         "output_tokens": 80,
         "total_cost": 0.00195

@@ -57,7 +57,7 @@ def query_inventory_db(sku: str) -> dict:
     return {'sku': sku, 'available': 42, 'warehouse': 'US-WEST'}
 
 # Create specialized agents
-model = OpenAIModel(model_id="gpt-4o")
+model = OpenAIModel(model_id="gpt-5-mini")
 
 customer_agent = Agent(config=AgentConfig(
     model=model,

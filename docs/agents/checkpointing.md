@@ -86,7 +86,7 @@ from spark.agents import Agent, AgentConfig
 from spark.models.openai import OpenAIModel
 
 # Create and use agent
-model = OpenAIModel(model_id="gpt-4o")
+model = OpenAIModel(model_id="gpt-5-mini")
 agent = Agent()
 
 await agent.run(user_message="My name is Alice.")
@@ -218,7 +218,7 @@ from spark.agents import Agent, AgentConfig
 from spark.models.openai import OpenAIModel
 
 # Create new config
-new_model = OpenAIModel(model_id="gpt-4o-mini")  # Different model
+new_model = OpenAIModel(model_id="gpt-5-mini")  # Different model
 new_config = AgentConfig(
     model=new_model,
     max_steps=20  # Different settings
@@ -441,7 +441,7 @@ ReAct reasoning history preserved:
 from spark.agents import Agent, AgentConfig, ReActStrategy
 from spark.models.openai import OpenAIModel
 
-model = OpenAIModel(model_id="gpt-4o")
+model = OpenAIModel(model_id="gpt-5-mini")
 config = AgentConfig(
     model=model,
     output_mode="json",

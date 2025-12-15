@@ -761,7 +761,7 @@ class AgentNode(Node):
         }
 
 # Usage in graph
-model = OpenAIModel(model_id="gpt-4o")
+model = OpenAIModel(model_id="gpt-5-mini")
 agent_node = AgentNode(model=model, tools=[search_web])
 
 graph = Graph(start=agent_node)
@@ -777,7 +777,7 @@ class ResearcherAgentNode(Node):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.agent = Agent(config=AgentConfig(
-            model=OpenAIModel(model_id="gpt-4o"),
+            model=OpenAIModel(model_id="gpt-5-mini"),
             system_prompt="You are a research specialist.",
             tools=[search_web, read_article]
         ))
@@ -793,7 +793,7 @@ class WriterAgentNode(Node):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.agent = Agent(config=AgentConfig(
-            model=OpenAIModel(model_id="gpt-4o"),
+            model=OpenAIModel(model_id="gpt-5-mini"),
             system_prompt="You are a technical writer."
         ))
 
@@ -820,7 +820,7 @@ class StatefulAgentNode(Node):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.agent = Agent(config=AgentConfig(
-            model=OpenAIModel(model_id="gpt-4o"),
+            model=OpenAIModel(model_id="gpt-5-mini"),
             system_prompt="You are a helpful assistant."
         ))
 
@@ -847,7 +847,7 @@ class CollaborativeAgentNode(Node):
         super().__init__(**kwargs)
         self.role = role
         self.agent = Agent(config=AgentConfig(
-            model=OpenAIModel(model_id="gpt-4o"),
+            model=OpenAIModel(model_id="gpt-5-mini"),
             system_prompt=f"You are a {role} agent."
         ))
 
@@ -897,7 +897,7 @@ async def test_agent_node():
     from unittest.mock import AsyncMock
 
     # Mock model
-    model = OpenAIModel(model_id="gpt-4o")
+    model = OpenAIModel(model_id="gpt-5-mini")
     model.get_text = AsyncMock(return_value="Test response")
 
     agent_node = AgentNode(model=model, tools=[])

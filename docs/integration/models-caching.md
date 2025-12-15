@@ -39,7 +39,7 @@ from spark.models.openai import OpenAIModel
 
 # Enable caching with default settings
 model = OpenAIModel(
-    model_id="gpt-4o",
+    model_id="gpt-5-mini",
     enable_cache=True  # Enable response caching
 )
 
@@ -71,7 +71,7 @@ cache_config = CacheConfig(
 )
 
 model = OpenAIModel(
-    model_id="gpt-4o",
+    model_id="gpt-5-mini",
     enable_cache=True,
     cache_config=cache_config
 )
@@ -84,7 +84,7 @@ Cache keys are deterministic and based on:
 ```python
 # Cache key includes:
 # - Provider name (openai, bedrock, gemini)
-# - Model ID (gpt-4o, claude-3-sonnet, etc.)
+# - Model ID (gpt-5-mini, claude-3-sonnet, etc.)
 # - Messages/prompts (complete conversation)
 # - System prompts
 # - Tool specifications
@@ -122,7 +122,7 @@ Different models can have different cache configurations:
 ```python
 # Expensive model: long TTL, aggressive caching
 gpt4_model = OpenAIModel(
-    model_id="gpt-4o",
+    model_id="gpt-5-mini",
     enable_cache=True,
     cache_ttl_seconds=86400  # 24 hours
 )
@@ -136,7 +136,7 @@ gpt3_model = OpenAIModel(
 
 # No caching for production real-time model
 realtime_model = OpenAIModel(
-    model_id="gpt-4o",
+    model_id="gpt-5-mini",
     enable_cache=False  # No caching
 )
 ```
@@ -150,7 +150,7 @@ from spark.models.gemini import GeminiModel
 
 # Each provider gets its own cache namespace
 openai_model = OpenAIModel(
-    model_id="gpt-4o",
+    model_id="gpt-5-mini",
     enable_cache=True
 )
 
@@ -167,7 +167,7 @@ gemini_model = GeminiModel(
 # Cache organized by provider:
 # ~/.cache/spark/llm-responses/
 #   openai/
-#     gpt-4o/
+#     gpt-5-mini/
 #       {cache_key}.json
 #   bedrock/
 #     claude-sonnet-4-5/
@@ -187,7 +187,7 @@ ENABLE_CACHE = os.getenv("SPARK_ENABLE_CACHE", "false").lower() == "true"
 CACHE_TTL = int(os.getenv("SPARK_CACHE_TTL", "3600"))
 
 model = OpenAIModel(
-    model_id="gpt-4o",
+    model_id="gpt-5-mini",
     enable_cache=ENABLE_CACHE,
     cache_ttl_seconds=CACHE_TTL
 )
@@ -210,12 +210,12 @@ cache_manager = CacheManager.get_instance()
 
 # All models share the same cache by default
 agent1 = Agent(config=AgentConfig(
-    model=OpenAIModel(model_id="gpt-4o", enable_cache=True),
+    model=OpenAIModel(model_id="gpt-5-mini", enable_cache=True),
     name="Agent1"
 ))
 
 agent2 = Agent(config=AgentConfig(
-    model=OpenAIModel(model_id="gpt-4o", enable_cache=True),
+    model=OpenAIModel(model_id="gpt-5-mini", enable_cache=True),
     name="Agent2"
 ))
 
@@ -261,7 +261,7 @@ dev_cache = CacheConfig(
 
 dev_agent1 = Agent(config=AgentConfig(
     model=OpenAIModel(
-        model_id="gpt-4o",
+        model_id="gpt-5-mini",
         enable_cache=True,
         cache_config=dev_cache
     )
@@ -269,7 +269,7 @@ dev_agent1 = Agent(config=AgentConfig(
 
 dev_agent2 = Agent(config=AgentConfig(
     model=OpenAIModel(
-        model_id="gpt-4o",
+        model_id="gpt-5-mini",
         enable_cache=True,
         cache_config=dev_cache
     )
@@ -278,7 +278,7 @@ dev_agent2 = Agent(config=AgentConfig(
 # Production agent has separate cache (or no cache)
 prod_agent = Agent(config=AgentConfig(
     model=OpenAIModel(
-        model_id="gpt-4o",
+        model_id="gpt-5-mini",
         enable_cache=False  # No cache in production
     )
 ))
@@ -293,14 +293,14 @@ Manage cache freshness and validity:
 ```python
 # Short TTL for frequently changing data
 news_model = OpenAIModel(
-    model_id="gpt-4o",
+    model_id="gpt-5-mini",
     enable_cache=True,
     cache_ttl_seconds=300  # 5 minutes
 )
 
 # Long TTL for static content
 docs_model = OpenAIModel(
-    model_id="gpt-4o",
+    model_id="gpt-5-mini",
     enable_cache=True,
     cache_ttl_seconds=604800  # 1 week
 )
@@ -322,7 +322,7 @@ manager.clear_all()
 manager.clear_provider('openai')
 
 # Clear cache for specific model
-manager.clear_model('openai', 'gpt-4o')
+manager.clear_model('openai', 'gpt-5-mini')
 
 # Remove expired entries
 removed_count = manager.cleanup_expired()
@@ -361,7 +361,7 @@ class ConditionalCacheModel:
 
 # Usage
 model = ConditionalCacheModel(OpenAIModel(
-    model_id="gpt-4o",
+    model_id="gpt-5-mini",
     enable_cache=True
 ))
 
@@ -395,13 +395,13 @@ class VersionedCacheModel:
 
 # Usage
 model_v1 = VersionedCacheModel(
-    OpenAIModel(model_id="gpt-4o", enable_cache=True),
+    OpenAIModel(model_id="gpt-5-mini", enable_cache=True),
     cache_version="v1"
 )
 
 # When you update prompts or logic, bump version
 model_v2 = VersionedCacheModel(
-    OpenAIModel(model_id="gpt-4o", enable_cache=True),
+    OpenAIModel(model_id="gpt-5-mini", enable_cache=True),
     cache_version="v2"  # Different version = different cache
 )
 ```
@@ -452,7 +452,7 @@ class CacheSavingsTracker:
         """Estimate API call cost."""
         # Rough estimates (replace with actual pricing)
         pricing = {
-            'gpt-4o': {'input': 5.00, 'output': 15.00},  # per 1M tokens
+            'gpt-5-mini': {'input': 5.00, 'output': 15.00},  # per 1M tokens
             'gpt-3.5-turbo': {'input': 0.50, 'output': 1.50}
         }
 
@@ -483,7 +483,7 @@ class CacheSavingsTracker:
 
 # Usage
 tracker = CacheSavingsTracker()
-model = OpenAIModel(model_id="gpt-4o", enable_cache=True)
+model = OpenAIModel(model_id="gpt-5-mini", enable_cache=True)
 
 # Track calls
 for query in queries:
@@ -561,7 +561,7 @@ dev_config = {
 }
 
 dev_model = OpenAIModel(
-    model_id="gpt-4o",
+    model_id="gpt-5-mini",
     **dev_config
 )
 
@@ -583,7 +583,7 @@ test_config = {
 }
 
 test_model = OpenAIModel(
-    model_id="gpt-4o",
+    model_id="gpt-5-mini",
     **test_config
 )
 
@@ -605,7 +605,7 @@ staging_config = {
 }
 
 staging_model = OpenAIModel(
-    model_id="gpt-4o",
+    model_id="gpt-5-mini",
     **staging_config
 )
 
@@ -620,7 +620,7 @@ staging_model = OpenAIModel(
 ```python
 # Production: No caching (default)
 prod_model = OpenAIModel(
-    model_id="gpt-4o",
+    model_id="gpt-5-mini",
     enable_cache=False  # Explicit no cache
 )
 
@@ -671,7 +671,7 @@ def get_model_config():
 
 # Usage
 config = get_model_config()
-model = OpenAIModel(model_id="gpt-4o", **config)
+model = OpenAIModel(model_id="gpt-5-mini", **config)
 ```
 
 ## Best Practices

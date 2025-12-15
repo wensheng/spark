@@ -84,7 +84,7 @@ Created: 2025-12-05 10:30:00
 Status: pending
 
 Rationale:
-  Replace GPT-4 with GPT-4o-mini for cost reduction.
+  Replace GPT-4 with GPT-5-mini for cost reduction.
   Analysis shows 90% of requests don't require GPT-4 capabilities.
   Expected cost savings: 75% ($500/month → $125/month)
 
@@ -95,8 +95,8 @@ Expected Improvement:
 
 Changes:
   1. Update node config: model_id
-     Old: gpt-4
-     New: gpt-4o-mini
+    Old: gpt-4
+    New: gpt-5-mini
 
 Diagnostic Evidence:
   - High cost node ($500/month)
@@ -386,7 +386,7 @@ Experience Database:
   ✓ Patterns extracted: 5
 
 LLM:
-  ✓ Model: Connected (gpt-4o)
+  ✓ Model: Connected (gpt-5-mini)
   ✓ Cache hit rate: 45%
   ✓ Avg latency: 1.2s
 

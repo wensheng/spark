@@ -153,7 +153,7 @@ experience_db = ExperienceDatabase()
 await experience_db.initialize()
 
 # Create RSI meta-graph
-model = OpenAIModel(model_id="gpt-4o")
+model = OpenAIModel(model_id="gpt-5-mini")
 config = RSIMetaGraphConfig(
     graph_id="production_workflow",
     graph_version="1.0.0",
@@ -457,7 +457,7 @@ async def process(self, context: ExecutionContext) -> Dict[str, Any]
 from spark.rsi import HypothesisGeneratorNode
 from spark.models.openai import OpenAIModel
 
-model = OpenAIModel(model_id="gpt-4o")
+model = OpenAIModel(model_id="gpt-5-mini")
 generator = HypothesisGeneratorNode(
     model=model,
     max_hypotheses=3,
@@ -1166,7 +1166,7 @@ if result['has_issues']:
 experience_db = ExperienceDatabase()
 await experience_db.initialize()
 
-model = OpenAIModel(model_id="gpt-4o")
+model = OpenAIModel(model_id="gpt-5-mini")
 config = RSIMetaGraphConfig(
     graph_id="production_workflow",
     graph_version="1.0.0",

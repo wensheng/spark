@@ -50,7 +50,7 @@ def search_web(query: str) -> str:
     return f"Search results for: {query}"
 
 # Create agent with tools
-model = OpenAIModel(model_id="gpt-4o")
+model = OpenAIModel(model_id="gpt-5-mini")
 config = AgentConfig(
     model=model,
     tools=[get_weather, search_web],

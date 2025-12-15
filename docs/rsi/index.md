@@ -20,7 +20,7 @@ RSI creates a feedback loop where graphs become progressively more capable over 
 RSI treats graph improvement as a meta-workflow problem. Rather than requiring manual optimization, RSI provides a complete autonomous system that continuously monitors production graphs, identifies opportunities for improvement, and safely applies validated changes.
 
 ```mermaid
-graph LR
+graph TD
     A[Production Graph] -->|Telemetry| B[Performance Analysis]
     B -->|Diagnostic Report| C[Hypothesis Generation]
     C -->|Improvement Ideas| D[Validation]
@@ -279,7 +279,7 @@ An LLM model is required for Phase 2 (hypothesis generation):
 ```python
 from spark.models.openai import OpenAIModel
 
-model = OpenAIModel(model_id="gpt-4o")
+model = OpenAIModel(model_id="gpt-5-mini")
 ```
 
 ## When to Use RSI
@@ -320,7 +320,7 @@ experience_db = ExperienceDatabase()
 await experience_db.initialize()
 
 # Step 3: Configure RSI meta-graph
-model = OpenAIModel(model_id="gpt-4o")
+model = OpenAIModel(model_id="gpt-5-mini")
 rsi_config = RSIMetaGraphConfig(
     graph_id="production_workflow",
     graph_version="1.0.0",

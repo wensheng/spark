@@ -311,7 +311,7 @@ def matches(self, request: PolicyRequest) -> bool
 
 **Examples**:
 - `model.*` matches `model.invoke`, `model.list`, etc.
-- `gpt-4*` matches `gpt-4`, `gpt-4o`, `gpt-4-turbo`, etc.
+- `gpt-4*` matches `gpt-4`, `gpt-5-mini`, `gpt-4-turbo`, etc.
 - `*.read` matches `user.read`, `document.read`, etc.
 
 **Subjects**: Special prefixes
@@ -354,7 +354,7 @@ from spark.governance import PolicyRequest, PolicySubject
 request = PolicyRequest(
     subject=PolicySubject(identifier="user_123", roles=["developer"]),
     action="model.invoke",
-    resource="gpt-4o",
+    resource="gpt-5-mini",
     context={"estimated_cost": 3.0}
 )
 
@@ -546,7 +546,7 @@ request = PolicyRequest(
         tags={"department": "engineering", "level": "senior"}
     ),
     action="model.invoke",
-    resource="gpt-4o",
+    resource="gpt-5-mini",
     context={
         "estimated_cost": 2.5,
         "estimated_tokens": 5000,
@@ -808,7 +808,7 @@ manager = ApprovalGateManager(state=graph_state)
 # Submit approval request
 approval = await manager.submit_request(
     action="model.invoke",
-    resource="gpt-4o",
+    resource="gpt-5-mini",
     subject={"identifier": "user_123", "roles": ["developer"]},
     reason="High cost model invocation",
     metadata={"estimated_cost": 5.0}
@@ -1049,7 +1049,7 @@ request = PolicyRequest(
         tags={"department": "engineering"}
     ),
     action="model.invoke",
-    resource="gpt-4o",
+    resource="gpt-5-mini",
     context={"estimated_cost": 3.5}
 )
 

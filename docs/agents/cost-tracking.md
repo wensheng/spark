@@ -29,7 +29,7 @@ tracker = CostTracker()
 
 # Record API call
 tracker.record_call(
-    model_id="gpt-4o",
+    model_id="gpt-5-mini",
     input_tokens=1500,
     output_tokens=800
 )
@@ -61,7 +61,7 @@ Agents automatically record all API calls:
 from spark.agents import Agent
 from spark.models.openai import OpenAIModel
 
-model = OpenAIModel(model_id="gpt-4o")
+model = OpenAIModel(model_id="gpt-5-mini")
 agent = Agent()
 
 # API calls automatically recorded
@@ -84,7 +84,7 @@ agent = Agent()
 
 # Manually record call
 agent.cost_tracker.record_call(
-    model_id="gpt-4o",
+    model_id="gpt-5-mini",
     input_tokens=1000,
     output_tokens=500
 )
@@ -118,8 +118,7 @@ CostTracker includes default pricing for common models:
 # Default prices (per 1M tokens in USD)
 DEFAULT_PRICING = {
     "openai": {
-        "gpt-4o": {"input": 5.00, "output": 15.00},
-        "gpt-4o-mini": {"input": 0.15, "output": 0.60},
+        "gpt-5-mini": {"input": 5.00, "output": 15.00},
         "gpt-4-turbo": {"input": 10.00, "output": 30.00},
     },
     "anthropic": {
@@ -139,11 +138,11 @@ Create custom pricing configuration file:
 ```json
 {
   "openai": {
-    "gpt-4o": {
+    "gpt-5-mini": {
       "input": 5.00,
       "output": 15.00
     },
-    "gpt-4o-mini": {
+    "gpt-5-mini-mini": {
       "input": 0.15,
       "output": 0.60
     }
@@ -204,7 +203,7 @@ tracker = CostTracker()
 tracker.reload_pricing("/path/to/updated_pricing.json")
 
 # Future calls use new pricing
-tracker.record_call("gpt-4o", 1000, 500)
+tracker.record_call("gpt-5-mini", 1000, 500)
 ```
 
 ### Creating Pricing Config Programmatically
@@ -214,8 +213,8 @@ import json
 
 pricing_config = {
     "openai": {
-        "gpt-4o": {"input": 5.00, "output": 15.00},
-        "gpt-4o-mini": {"input": 0.15, "output": 0.60}
+        "gpt-5-mini": {"input": 5.00, "output": 15.00},
+        "gpt-5-mini-mini": {"input": 0.15, "output": 0.60}
     },
     "default": {"input": 5.00, "output": 15.00}
 }
@@ -296,11 +295,11 @@ agent = Agent()
 # Use agent...
 
 # Filter by model
-gpt4_stats = agent.get_cost_stats(model_filter="gpt-4o")
-print(f"GPT-4o cost: ${gpt4_stats.total_cost:.4f}")
+gpt4_stats = agent.get_cost_stats(model_filter="gpt-5-mini")
+print(f"GPT-5-mini cost: ${gpt4_stats.total_cost:.4f}")
 
-mini_stats = agent.get_cost_stats(model_filter="gpt-4o-mini")
-print(f"GPT-4o-mini cost: ${mini_stats.total_cost:.4f}")
+mini_stats = agent.get_cost_stats(model_filter="gpt-5-mini-mini")
+print(f"GPT-5-mini cost: ${mini_stats.total_cost:.4f}")
 ```
 
 ## Cost Summaries and Reports
@@ -330,7 +329,7 @@ print(summary)
 # Total Cost: $0.1823
 #
 # Model Breakdown:
-# - gpt-4o: 10 calls, 15,234 tokens, $0.1823
+# - gpt-5-mini: 10 calls, 15,234 tokens, $0.1823
 ```
 
 ### Custom Reporting
@@ -607,8 +606,8 @@ from spark.models.openai import OpenAIModel
 
 # Cost comparison
 models = {
-    "premium": OpenAIModel(model_id="gpt-4o"),
-    "standard": OpenAIModel(model_id="gpt-4o-mini")
+    "premium": OpenAIModel(model_id="gpt-5-mini"),
+    "standard": OpenAIModel(model_id="gpt-5-mini-mini")
 }
 
 results = {}
@@ -642,7 +641,7 @@ from spark.models.openai import OpenAIModel
 
 # Enable caching
 model = OpenAIModel(
-    model_id="gpt-4o",
+    model_id="gpt-5-mini",
     enable_cache=True,
     cache_ttl_seconds=3600  # 1 hour
 )
@@ -820,7 +819,7 @@ def test_cost_tracking():
     tracker = CostTracker()
 
     # Record call
-    tracker.record_call("gpt-4o", input_tokens=1000, output_tokens=500)
+    tracker.record_call("gpt-5-mini", input_tokens=1000, output_tokens=500)
 
     # Verify stats
     stats = tracker.get_stats()
@@ -835,7 +834,7 @@ def test_cost_reset():
     tracker = CostTracker()
 
     # Record and verify
-    tracker.record_call("gpt-4o", 1000, 500)
+    tracker.record_call("gpt-5-mini", 1000, 500)
     stats1 = tracker.get_stats()
     assert stats1.total_calls == 1
 
@@ -856,7 +855,7 @@ from spark.models.openai import OpenAIModel
 @pytest.mark.asyncio
 async def test_agent_cost_tracking():
     """Test cost tracking in agent."""
-    model = OpenAIModel(model_id="gpt-4o", enable_cache=True)
+    model = OpenAIModel(model_id="gpt-5-mini", enable_cache=True)
     agent = Agent(config=AgentConfig(model=model))
 
     # Execute agent

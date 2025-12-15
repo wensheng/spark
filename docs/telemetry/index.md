@@ -498,7 +498,7 @@ for i in range(100):
     await production_graph.run()
 
 # 3. RSI analyzes telemetry for improvements
-model = OpenAIModel(model_id="gpt-4o")
+    model = OpenAIModel(model_id="gpt-5-mini")
 rsi_config = RSIMetaGraphConfig(
     model=model,
     target_graph_id="production_workflow",

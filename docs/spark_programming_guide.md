@@ -205,7 +205,7 @@ from spark.agents import Agent, AgentConfig
 from spark.models.openai import OpenAIModel
 
 config = AgentConfig(
-    model=OpenAIModel(model_id="gpt-4o"),
+    model=OpenAIModel(model_id="gpt-5-mini"),
     system_prompt="You are a helpful assistant."
 )
 agent = Agent(config=config)
@@ -380,7 +380,7 @@ rsi_config = RSIMetaGraphConfig(
 rsi = RSIMetaGraph(
     config=rsi_config,
     experience_db=experience_db,
-    model=OpenAIModel(model_id="gpt-4o")
+    model=OpenAIModel(model_id="gpt-5-mini")
 )
 
 # 4. Run Improvement Loop
@@ -455,7 +455,7 @@ local_node >> proxy >> output_node
 import os
 
 model = OpenAIModel(
-    model_id=os.getenv('MODEL_ID', 'gpt-4o'),
+    model_id=os.getenv('MODEL_ID', 'gpt-5-mini'),
     api_key=os.getenv('OPENAI_API_KEY')
 )
 

@@ -285,7 +285,7 @@ Agents are generated with complete configuration.
   "config": {
     "model": {
       "provider": "openai",
-      "model_id": "gpt-4o",
+      "model_id": "gpt-5-mini",
       "temperature": 0.7
     },
     "system_prompt": "You are a helpful assistant",
@@ -305,7 +305,7 @@ class AssistantAgent(Node):
     def __init__(self):
         # Create model
         model = OpenAIModel(
-            model_id="gpt-4o",
+            model_id="gpt-5-mini",
             temperature=0.7
         )
 

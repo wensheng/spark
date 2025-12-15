@@ -19,7 +19,7 @@ from spark.models.openai import OpenAIModel
 from spark.agents import Agent, AgentConfig
 from spark.models.openai import OpenAIModel
 
-model = OpenAIModel(model_id="gpt-4o")
+model = OpenAIModel(model_id="gpt-5-mini")
 
 config = AgentConfig(
     model=model,
@@ -48,7 +48,7 @@ from spark.models.openai import OpenAIModel
 from spark.models.bedrock import BedrockModel
 
 # OpenAI model
-config = AgentConfig(model=OpenAIModel(model_id="gpt-4o"))
+config = AgentConfig(model=OpenAIModel(model_id="gpt-5-mini"))
 
 # Bedrock model
 config = AgentConfig(model=BedrockModel(
@@ -57,7 +57,7 @@ config = AgentConfig(model=BedrockModel(
 
 # With caching enabled
 config = AgentConfig(model=OpenAIModel(
-    model_id="gpt-4o",
+    model_id="gpt-5-mini",
     enable_cache=True,
     cache_ttl_seconds=3600
 ))
@@ -934,7 +934,7 @@ def analyze_data(data: dict) -> dict:
 
 # Create model with caching
 model = OpenAIModel(
-    model_id="gpt-4o",
+    model_id="gpt-5-mini",
     enable_cache=True,
     cache_ttl_seconds=3600
 )

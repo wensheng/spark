@@ -325,7 +325,7 @@ python test_spark.py
 from spark.agents import Agent, AgentConfig
 from spark.models.openai import OpenAIModel
 
-model = OpenAIModel(model_id="gpt-4o-mini")
+model = OpenAIModel(model_id="gpt-5-mini-mini")
 config = AgentConfig(model=model)
 agent = Agent(config=config)
 

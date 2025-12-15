@@ -178,7 +178,7 @@ from spark.models.openai import OpenAIModel
 
 # Create agent
 config = AgentConfig(
-    model=OpenAIModel(model_id="gpt-4o"),
+    model=OpenAIModel(model_id="gpt-5-mini"),
     name="ProductionAgent",
     system_prompt="You are a helpful assistant."
 )
@@ -234,7 +234,7 @@ agent_checkpoint = {
     },
     'cost_tracking': {
         'calls': [
-            {'model': 'gpt-4o', 'input_tokens': 100, 'output_tokens': 50},
+            {'model': 'gpt-5-mini', 'input_tokens': 100, 'output_tokens': 50},
             # All cost records
         ]
     },

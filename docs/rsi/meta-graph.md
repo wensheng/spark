@@ -103,7 +103,7 @@ experience_db = ExperienceDatabase()
 await experience_db.initialize()
 
 # Configure RSI
-model = OpenAIModel(model_id="gpt-4o")
+model = OpenAIModel(model_id="gpt-5-mini")
 config = RSIMetaGraphConfig(
     graph_id="production_workflow",
     max_hypotheses=5,
@@ -283,7 +283,7 @@ experience_db = ExperienceDatabase()
 await experience_db.initialize()
 
 model = OpenAIModel(
-    model_id="gpt-4o",
+    model_id="gpt-5-mini",
     enable_cache=True
 )
 
@@ -481,14 +481,14 @@ await rsi_graph.run_continuous(
 ```python
 # Enable caching
 model = OpenAIModel(
-    model_id="gpt-4o",
+    model_id="gpt-5-mini",
     enable_cache=True,
     cache_ttl_seconds=86400  # 24 hours
 )
 
 # Use cheaper model
 model = OpenAIModel(
-    model_id="gpt-4o-mini"  # Cheaper alternative
+    model_id="gpt-5-mini-mini"  # Cheaper alternative
 )
 
 # Reduce max_hypotheses

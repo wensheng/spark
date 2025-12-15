@@ -44,7 +44,7 @@ from spark.models.openai import OpenAIModel
 
 # Configure model
 model = OpenAIModel(
-    model_id="gpt-4o",
+    model_id="gpt-5-mini",
     temperature=0.7,
     max_tokens=2000
 )
@@ -92,7 +92,7 @@ def search_web(query: str) -> str:
     return f"Search results for: {query}"
 
 # Configure agent with tools
-model = OpenAIModel(model_id="gpt-4o")
+model = OpenAIModel(model_id="gpt-5-mini")
 config = AgentConfig(
     model=model,
     tools=[get_weather, search_web],
@@ -408,7 +408,7 @@ async def test_agent_tool_calling():
         return a + b
 
     # Configure agent with tool
-    model = OpenAIModel(model_id="gpt-4o")
+    model = OpenAIModel(model_id="gpt-5-mini")
     config = AgentConfig(
         model=model,
         tools=[add],
@@ -464,7 +464,7 @@ async def test_agent_integration():
     """Integration test with real model (cached)."""
     # Enable caching for fast, deterministic tests
     model = OpenAIModel(
-        model_id="gpt-4o",
+        model_id="gpt-5-mini",
         enable_cache=True,
         cache_ttl_seconds=3600
     )
@@ -553,7 +553,7 @@ Use response caching for development and testing:
 
 ```python
 model = OpenAIModel(
-    model_id="gpt-4o",
+    model_id="gpt-5-mini",
     enable_cache=True,
     cache_ttl_seconds=3600  # 1 hour
 )

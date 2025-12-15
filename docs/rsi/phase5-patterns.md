@@ -139,7 +139,7 @@ experience_db = ExperienceDatabase()
 await experience_db.initialize()
 
 # Create model for hypothesis generation
-model = OpenAIModel(model_id="gpt-4o")
+model = OpenAIModel(model_id="gpt-5-mini")
 
 # Configure RSI meta-graph
 config = RSIMetaGraphConfig(
@@ -272,7 +272,7 @@ experience_db = ExperienceDatabase()
 await experience_db.initialize()
 
 # Step 3: Configure RSI meta-graph
-model = OpenAIModel(model_id="gpt-4o")
+model = OpenAIModel(model_id="gpt-5-mini")
 
 rsi_config = RSIMetaGraphConfig(
     graph_id="production_workflow",

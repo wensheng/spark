@@ -191,7 +191,7 @@ manager.record_metric(
     value=1500,
     unit="count",
     aggregation=MetricAggregation.COUNTER,
-    attributes={"model": "gpt-4o"}
+    attributes={"model": "gpt-5-mini"}
 )
 ```
 

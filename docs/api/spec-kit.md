@@ -175,7 +175,7 @@ agent_node = NodeSpec(
     id="agent_node",
     type="Agent",
     agent_config=EnhancedAgentConfigSpec(
-        model=ModelSpec(provider="openai", model_id="gpt-4o"),
+        model=ModelSpec(provider="openai", model_id="gpt-5-mini"),
         system_prompt="You are a helpful assistant",
         max_steps=10
     )
@@ -268,7 +268,7 @@ from spark.nodes.spec import (
 )
 
 config = EnhancedAgentConfigSpec(
-    model=ModelSpec(provider="openai", model_id="gpt-4o"),
+    model=ModelSpec(provider="openai", model_id="gpt-5-mini"),
     system_prompt="You are a data analysis assistant",
     tools=[
         ToolConfigSpec(
@@ -374,7 +374,7 @@ from spark.nodes.spec import ModelSpec
 # OpenAI model
 model = ModelSpec(
     provider="openai",
-    model_id="gpt-4o",
+    model_id="gpt-5-mini",
     config={"temperature": 0.7, "max_tokens": 1000}
 )
 

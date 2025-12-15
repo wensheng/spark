@@ -933,14 +933,14 @@ config = TelemetryConfig.create_postgresql(
 # Good: consistent, namespaced attributes
 span.set_attribute("node.id", "transform_1")
 span.set_attribute("node.type", "TransformNode")
-span.set_attribute("llm.model", "gpt-4o")
+span.set_attribute("llm.model", "gpt-5-mini")
 span.set_attribute("llm.tokens", 1500)
 span.set_attribute("db.table", "users")
 
 # Avoid: inconsistent naming
 span.set_attribute("nodeId", "transform_1")
 span.set_attribute("Node_Type", "TransformNode")
-span.set_attribute("model", "gpt-4o")
+span.set_attribute("model", "gpt-5-mini")
 ```
 
 ### Query Optimization

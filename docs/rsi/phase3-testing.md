@@ -352,7 +352,7 @@ analysis = await analyzer.run({'graph_id': 'prod_workflow'})
 report = analysis['report']
 
 # Phase 2: Generate & Validate
-model = OpenAIModel(model_id="gpt-4o")
+model = OpenAIModel(model_id="gpt-5-mini")
 generator = HypothesisGeneratorNode(model=model, max_hypotheses=3)
 gen_result = await generator.run({
     'diagnostic_report': report,

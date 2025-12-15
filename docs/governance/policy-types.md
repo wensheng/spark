@@ -43,10 +43,10 @@ expensive_model_policy = PolicyRule(
 # Allow approved models for everyone
 approved_models_policy = PolicyRule(
     name="allow_approved_models",
-    description="Allow GPT-4o-mini and Claude Sonnet for all users",
+    description="Allow GPT-5-mini and Claude Sonnet for all users",
     effect=PolicyEffect.ALLOW,
     actions=["agent:model_invoke"],
-    resources=["model://gpt-4o-mini", "model://claude-sonnet*"],
+    resources=["model://gpt-5-mini", "model://claude-sonnet*"],
     priority=20
 )
 
@@ -71,7 +71,7 @@ model_policy_set = PolicySet(
             name="allow_approved_models",
             effect=PolicyEffect.ALLOW,
             actions=["agent:model_invoke"],
-            resources=["model://gpt-4o-mini", "model://claude-sonnet*"],
+            resources=["model://gpt-5-mini", "model://claude-sonnet*"],
             priority=10
         )
     ]
@@ -110,7 +110,7 @@ def check_rate_limit(user_id: str, limit: int, window_seconds: int) -> bool:
 request = PolicyRequest(
     subject=PolicySubject(identifier="user-123"),
     action="agent:model_invoke",
-    resource="model://gpt-4o",
+    resource="model://gpt-5-mini",
     context={
         "rate_limit_exceeded": check_rate_limit("user-123", limit=100, window_seconds=60)
     }
@@ -763,8 +763,7 @@ expensive_operation_policy = PolicyRule(
 # Cost estimation helper:
 MODEL_COSTS = {
     "gpt-4": {"input": 30.0, "output": 60.0},  # per 1M tokens (USD)
-    "gpt-4o": {"input": 5.0, "output": 15.0},
-    "gpt-4o-mini": {"input": 0.15, "output": 0.60},
+    "gpt-5-mini": {"input": 5.0, "output": 15.0},
     "claude-opus": {"input": 15.0, "output": 75.0},
     "claude-sonnet": {"input": 3.0, "output": 15.0},
 }

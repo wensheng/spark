@@ -304,11 +304,11 @@ Serialize model to ModelSpec.
 from spark.nodes.serde import model_to_spec
 from spark.models.openai import OpenAIModel
 
-model = OpenAIModel(model_id="gpt-4o", temperature=0.7)
+model = OpenAIModel(model_id="gpt-5-mini", temperature=0.7)
 spec = model_to_spec(model)
 
 print(spec.provider)  # "openai"
-print(spec.model_id)  # "gpt-4o"
+print(spec.model_id)  # "gpt-5-mini"
 print(spec.temperature)  # 0.7
 ```
 
@@ -369,7 +369,7 @@ def calculate(expression: str) -> str:
     """Evaluate math expression."""
     return str(eval(expression))
 
-model = OpenAIModel(model_id="gpt-4o")
+model = OpenAIModel(model_id="gpt-5-mini")
 config = AgentConfig(
     model=model,
     tools=[calculate],

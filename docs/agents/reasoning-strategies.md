@@ -83,7 +83,7 @@ Strategies are configured via `AgentConfig`:
 from spark.agents import Agent, AgentConfig, ReActStrategy
 from spark.models.openai import OpenAIModel
 
-model = OpenAIModel(model_id="gpt-4o")
+model = OpenAIModel(model_id="gpt-5-mini")
 config = AgentConfig(
     model=model,
     output_mode="json",  # Required for most strategies
@@ -133,7 +133,7 @@ from spark.agents import Agent
 from spark.models.openai import OpenAIModel
 
 # NoOpStrategy is default
-model = OpenAIModel(model_id="gpt-4o")
+model = OpenAIModel(model_id="gpt-5-mini")
 agent = Agent()
 
 # Direct responses
@@ -162,7 +162,7 @@ Reasoning + Acting strategy with iterative thought → action → observation cy
 from spark.agents import Agent, AgentConfig, ReActStrategy
 from spark.models.openai import OpenAIModel
 
-model = OpenAIModel(model_id="gpt-4o")
+model = OpenAIModel(model_id="gpt-5-mini")
 config = AgentConfig(
     model=model,
     output_mode="json",  # Required
@@ -219,7 +219,7 @@ def calculate(expression: str) -> float:
     return eval(expression)
 
 # Configure agent with ReAct
-model = OpenAIModel(model_id="gpt-4o")
+model = OpenAIModel(model_id="gpt-5-mini")
 config = AgentConfig(
     model=model,
     output_mode="json",
@@ -297,7 +297,7 @@ Step-by-step reasoning strategy for mathematical and logical problems.
 from spark.agents import Agent, AgentConfig, ChainOfThoughtStrategy
 from spark.models.openai import OpenAIModel
 
-model = OpenAIModel(model_id="gpt-4o")
+model = OpenAIModel(model_id="gpt-5-mini")
 config = AgentConfig(
     model=model,
     output_mode="json",  # Required
@@ -329,7 +329,7 @@ agent = Agent(config=config)
 from spark.agents import Agent, AgentConfig, ChainOfThoughtStrategy
 from spark.models.openai import OpenAIModel
 
-model = OpenAIModel(model_id="gpt-4o")
+model = OpenAIModel(model_id="gpt-5-mini")
 config = AgentConfig(
     model=model,
     output_mode="json",
@@ -398,7 +398,7 @@ Plan-first execution strategy with explicit planning phase and step tracking.
 from spark.agents import Agent, AgentConfig, PlanAndSolveStrategy
 from spark.models.openai import OpenAIModel
 
-model = OpenAIModel(model_id="gpt-4o")
+model = OpenAIModel(model_id="gpt-5-mini")
 config = AgentConfig(
     model=model,
     output_mode="json",  # Required
@@ -462,7 +462,7 @@ def process_order(item: str, quantity: int) -> dict:
     return {"order_id": "ORD-123", "status": "confirmed"}
 
 # Configure agent
-model = OpenAIModel(model_id="gpt-4o")
+model = OpenAIModel(model_id="gpt-5-mini")
 config = AgentConfig(
     model=model,
     output_mode="json",
@@ -789,13 +789,13 @@ Is the task simple and direct?
 ```python
 # Cost-conscious: NoOpStrategy
 config = AgentConfig(
-    model=OpenAIModel(model_id="gpt-4o-mini"),
+    model=OpenAIModel(model_id="gpt-5-mini-mini"),
     reasoning_strategy=NoOpStrategy()
 )
 
 # Balanced: ReActStrategy with max_steps limit
 config = AgentConfig(
-    model=OpenAIModel(model_id="gpt-4o"),
+    model=OpenAIModel(model_id="gpt-5-mini"),
     output_mode="json",
     reasoning_strategy=ReActStrategy(),
     max_steps=5  # Limit iterations

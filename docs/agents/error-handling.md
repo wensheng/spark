@@ -113,7 +113,7 @@ from spark.agents import Agent, ModelError
 from spark.models.openai import OpenAIModel
 
 # Invalid API key
-model = OpenAIModel(model_id="gpt-4o", api_key="invalid")
+model = OpenAIModel(model_id="gpt-5-mini", api_key="invalid")
 agent = Agent()
 
 try:
@@ -428,7 +428,7 @@ from spark.models.openai import OpenAIModel
 async def run_with_model_fallback(message: str):
     """Try premium model, fallback to cheaper model."""
     # Try premium model first
-    premium_model = OpenAIModel(model_id="gpt-4o")
+    premium_model = OpenAIModel(model_id="gpt-5-mini")
     agent = Agent(config=AgentConfig(model=premium_model))
 
     try:
@@ -438,8 +438,8 @@ async def run_with_model_fallback(message: str):
         print(f"Premium model failed: {e}")
 
         # Fallback to cheaper model
-        print("Falling back to gpt-4o-mini")
-        fallback_model = OpenAIModel(model_id="gpt-4o-mini")
+        print("Falling back to gpt-5-mini-mini")
+        fallback_model = OpenAIModel(model_id="gpt-5-mini-mini")
         agent = Agent(config=AgentConfig(model=fallback_model))
 
         return await agent.run(user_message=message)
@@ -597,8 +597,8 @@ async def run_with_quality_degradation(message: str):
     """Degrade response quality rather than fail."""
     # Quality levels (best to worst)
     models = [
-        ("premium", OpenAIModel(model_id="gpt-4o")),
-        ("standard", OpenAIModel(model_id="gpt-4o-mini")),
+        ("premium", OpenAIModel(model_id="gpt-5-mini")),
+        ("standard", OpenAIModel(model_id="gpt-5-mini-mini")),
     ]
 
     last_error = None
@@ -844,7 +844,7 @@ from spark.models.openai import OpenAIModel
 async def test_model_error_handling():
     """Test model error handling."""
     # Invalid API key
-    model = OpenAIModel(model_id="gpt-4o", api_key="invalid")
+    model = OpenAIModel(model_id="gpt-5-mini", api_key="invalid")
     agent = Agent(config=AgentConfig(model=model))
 
     with pytest.raises(ModelError):

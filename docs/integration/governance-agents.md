@@ -146,7 +146,7 @@ class GovernedAgentNode(Node):
 
 # Usage
 agent = Agent(config=AgentConfig(
-    model=OpenAIModel(model_id="gpt-4o"),
+    model=OpenAIModel(model_id="gpt-5-mini"),
     name="ProductionAgent"
 ))
 
@@ -168,7 +168,7 @@ from spark.agents import AgentConfig, AgentBudgetConfig
 
 # Configure agent with budget
 config = AgentConfig(
-    model=OpenAIModel(model_id="gpt-4o"),
+    model=OpenAIModel(model_id="gpt-5-mini"),
     budget=AgentBudgetConfig(
         max_total_cost=1.00,        # $1.00 total budget
         max_cost_per_call=0.10,     # $0.10 per agent.run()
@@ -309,7 +309,7 @@ from spark.agents import HumanInteractionPolicy, HumanApprovalRequired
 
 # Configure agent with approval policy
 config = AgentConfig(
-    model=OpenAIModel(model_id="gpt-4o"),
+    model=OpenAIModel(model_id="gpt-5-mini"),
     tools=[delete_tool, modify_tool, deploy_tool],
     human_policy=HumanInteractionPolicy(
         require_tool_approval=True,

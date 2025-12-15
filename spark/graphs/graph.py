@@ -93,6 +93,7 @@ class Graph(BaseGraph):
         lifecycle_hooks = kwargs.pop('lifecycle_hooks', None)
         state_backend = kwargs.pop('state_backend', None)
         mission_control = kwargs.pop('mission_control', None)
+        auto_shutdown = kwargs.pop('auto_shutdown', True)
         workspace: Workspace | None = kwargs.pop('workspace', None)
         artifact_manager: ArtifactManager | None = kwargs.pop('artifact_manager', None)
         artifact_policy: ArtifactPolicy | None = kwargs.pop('artifact_policy', None)
@@ -150,6 +151,7 @@ class Graph(BaseGraph):
             ArtifactManager(self.state, policy=artifact_policy) if artifact_policy else None
         )
         self._approval_manager = ApprovalGateManager(self.state, storage_key=approval_state_key)
+        self._auto_shutdown_enabled = auto_shutdown
         self._attach_policy_engine_to_nodes()
 
     def register_hook(self, event: GraphLifecycleEvent | str, hook: HookFn) -> None:
@@ -873,7 +875,7 @@ class Graph(BaseGraph):
                     all_idle = False
                     break
 
-            if all_idle:
+            if self._auto_shutdown_enabled and all_idle:
                 # All nodes are idle, trigger shutdown
                 print("[System] All nodes idle, triggering automatic shutdown...")
                 await self._stop_all_nodes_async()

@@ -49,7 +49,7 @@ from spark.agents import Agent, AgentConfig
 from spark.models.openai import OpenAIModel
 
 config = AgentConfig(
-    model=OpenAIModel(model_id="gpt-4o-mini"),
+    model=OpenAIModel(model_id="gpt-5-mini"),
     system_prompt="You are a helpful assistant.",
     tools=[search_tool, calculator_tool]
 )
@@ -473,7 +473,7 @@ from spark.agents.strategies import ReActStrategy
 from spark.models.openai import OpenAIModel
 
 config = AgentConfig(
-    model=OpenAIModel(model_id="gpt-4o"),
+    model=OpenAIModel(model_id="gpt-5-mini"),
     system_prompt="You are a research assistant.",
     tools=[search_tool, calculator_tool],
     tool_choice='auto',
@@ -913,7 +913,7 @@ Record an LLM API call and calculate cost.
 from spark.agents.cost_tracker import CostTracker
 
 tracker = CostTracker()
-call_cost = tracker.record_call('gpt-4o', input_tokens=1500, output_tokens=800)
+    call_cost = tracker.record_call('gpt-5-mini', input_tokens=1500, output_tokens=800)
 print(f"Cost: ${call_cost.total_cost:.6f}")
 ```
 
@@ -1027,10 +1027,9 @@ The CostTracker loads model pricing from a JSON configuration file. It searches 
 **Config File Format** (`model_pricing.json`):
 ```json
 {
-  "openai": {
-    "gpt-4o": {"input": 5.00, "output": 15.00},
-    "gpt-4o-mini": {"input": 0.15, "output": 0.60}
-  },
+    "openai": {
+        "gpt-5-mini": {"input": 5.00, "output": 15.00}
+    },
   "anthropic": {
     "claude-3-opus": {"input": 15.00, "output": 75.00},
     "claude-3-sonnet": {"input": 3.00, "output": 15.00}

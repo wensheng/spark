@@ -66,7 +66,7 @@ Configure RSI to use the same telemetry backend:
 from spark.rsi import RSIMetaGraph, RSIMetaGraphConfig
 from spark.models.openai import OpenAIModel
 
-model = OpenAIModel(model_id="gpt-4o")
+model = OpenAIModel(model_id="gpt-5-mini")
 
 rsi_config = RSIMetaGraphConfig(
     model=model,
@@ -601,7 +601,7 @@ manager = TelemetryManager.get_instance()
 await manager.flush()
 
 # 4. Setup RSI with same telemetry backend
-model = OpenAIModel(model_id="gpt-4o")
+model = OpenAIModel(model_id="gpt-5-mini")
 rsi_config = RSIMetaGraphConfig(
     model=model,
     target_graph_id="production_workflow",

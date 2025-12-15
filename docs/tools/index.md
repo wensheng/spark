@@ -623,7 +623,7 @@ def get_user_info(user_id: str) -> dict:
 
 @pytest.mark.asyncio
 async def test_agent_uses_tool():
-    model = OpenAIModel(model_id="gpt-4o-mini")
+    model = OpenAIModel(model_id="gpt-5-mini")
     config = AgentConfig(
         model=model,
         tools=[get_user_info],

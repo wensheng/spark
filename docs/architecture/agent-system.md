@@ -687,8 +687,8 @@ class CostTracker:
 ```json
 {
   "openai": {
-    "gpt-4o": {"input": 5.00, "output": 15.00},
-    "gpt-4o-mini": {"input": 0.15, "output": 0.60}
+    "gpt-5-mini": {"input": 5.00, "output": 15.00},
+    "gpt-5-mini-mini": {"input": 0.15, "output": 0.60}
   },
   "anthropic": {
     "claude-3-opus": {"input": 15.00, "output": 75.00},

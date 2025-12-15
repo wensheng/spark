@@ -933,7 +933,7 @@ registry.process_tools([search_database, contextual_search, async_api_call])
 
 # Use tools with agent
 config = AgentConfig(
-    model=OpenAIModel(model_id="gpt-4o-mini"),
+    model=OpenAIModel(model_id="gpt-5-mini"),
     tools=[search_database, contextual_search, async_api_call],
     tool_choice='auto',
     parallel_tool_execution=True

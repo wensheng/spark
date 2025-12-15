@@ -76,7 +76,7 @@ def search_docs(query: str) -> str:
     return f"Found docs for: {query}"
 
 # Create agent configuration
-model = OpenAIModel(model_id="gpt-4o")
+model = OpenAIModel(model_id="gpt-5-mini")
 agent_config = AgentConfig(
     model=model,
     tools=[search_docs],
@@ -296,7 +296,7 @@ def generate_report(analysis: str) -> str:
     return f"Report based on: {analysis}"
 
 # Create specialized agents
-model = OpenAIModel(model_id="gpt-4o")
+model = OpenAIModel(model_id="gpt-5-mini")
 
 research_agent = Agent(config=AgentConfig(
     model=model,
@@ -696,7 +696,7 @@ async def test_multi_agent_workflow():
 
     # Use real models but with caching
     model = OpenAIModel(
-        model_id="gpt-4o-mini",  # Cheaper model for testing
+        model_id="gpt-5-mini-mini",  # Cheaper model for testing
         enable_cache=True  # Cache responses
     )
 

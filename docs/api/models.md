@@ -212,7 +212,7 @@ spec = model.to_spec_dict()
 # {
 #   "type": "OpenAIModel",
 #   "provider": "openai",
-#   "model_id": "gpt-4o-mini",
+#   "model_id": "gpt-5-mini",
 #   "config": {...}
 # }
 ```
@@ -272,7 +272,7 @@ class OpenAIConfig(TypedDict, total=False):
 
 **Fields:**
 - **model_id** (str, required): Model identifier
-  - GPT-4 models: `"gpt-4o"`, `"gpt-4o-mini"`, `"gpt-4-turbo"`
+    - GPT-4 models: `"gpt-5-mini"`, `"gpt-5-mini"`, `"gpt-4-turbo"`
   - GPT-3.5 models: `"gpt-3.5-turbo"`
   - See [OpenAI Models](https://platform.openai.com/docs/models) for full list
 - **params** (dict, optional): Model parameters
@@ -314,7 +314,7 @@ Get current OpenAI configuration.
 from spark.models.openai import OpenAIModel
 
 model = OpenAIModel(
-    model_id="gpt-4o-mini",
+    model_id="gpt-5-mini",
     params={
         "temperature": 0.7,
         "max_tokens": 1000
@@ -330,7 +330,7 @@ print(response['content'])
 
 ```python
 model = OpenAIModel(
-    model_id="gpt-4o-mini",
+    model_id="gpt-5-mini",
     enable_cache=True,
     cache_ttl_seconds=3600  # 1 hour
 )
@@ -364,7 +364,7 @@ class UserInfo(BaseModel):
     age: int
     occupation: str
 
-model = OpenAIModel(model_id="gpt-4o")
+model = OpenAIModel(model_id="gpt-5-mini")
 
 messages = [
     {"role": "user", "content": [{"text": "Extract info: John is 30 and works as a teacher"}]}
@@ -687,7 +687,7 @@ from spark.models.cache import CacheManager
 manager = CacheManager.get_instance()
 cache_key = manager.generate_cache_key(
     provider="openai",
-    model_id="gpt-4o-mini",
+    model_id="gpt-5-mini-mini",
     messages=[...],
     system_prompt="You are helpful",
     temperature=0.7
@@ -849,13 +849,13 @@ from spark.models.openai import OpenAIModel
 
 # Enable with default TTL (24 hours)
 model = OpenAIModel(
-    model_id="gpt-4o-mini",
+    model_id="gpt-5-mini-mini",
     enable_cache=True
 )
 
 # Enable with custom TTL
 model = OpenAIModel(
-    model_id="gpt-4o-mini",
+    model_id="gpt-5-mini-mini",
     enable_cache=True,
     cache_ttl_seconds=3600  # 1 hour
 )
@@ -913,7 +913,7 @@ def search_web(query: str) -> str:
 
 # OpenAI model with caching
 openai_model = OpenAIModel(
-    model_id="gpt-4o-mini",
+    model_id="gpt-5-mini-mini",
     enable_cache=True,
     cache_ttl_seconds=3600,
     params={

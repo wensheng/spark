@@ -403,7 +403,7 @@ class ResearchAgentService(RpcNode):
         super().__init__(**kwargs)
 
         # Create agent
-        model = OpenAIModel(model_id="gpt-4o")
+        model = OpenAIModel(model_id="gpt-5-mini")
         self.agent = Agent(
             config=AgentConfig(
                 model=model,
@@ -430,7 +430,7 @@ class AnalysisAgentService(RpcNode):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
-        model = OpenAIModel(model_id="gpt-4o")
+        model = OpenAIModel(model_id="gpt-5-mini")
         self.agent = Agent(
             config=AgentConfig(
                 model=model,

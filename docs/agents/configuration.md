@@ -44,7 +44,7 @@ from spark.agents import Agent, AgentConfig
 from spark.models.openai import OpenAIModel
 
 # Minimal configuration
-model = OpenAIModel(model_id="gpt-4o")
+model = OpenAIModel(model_id="gpt-5-mini")
 config = AgentConfig(model=model)
 agent = Agent(config=config)
 
@@ -72,7 +72,7 @@ from spark.models.openai import OpenAIModel
 
 # Basic OpenAI configuration
 model = OpenAIModel(
-    model_id="gpt-4o",
+    model_id="gpt-5-mini",
     temperature=0.7,
     max_tokens=2000,
     api_key="your-api-key"  # Or set OPENAI_API_KEY env var
@@ -80,7 +80,7 @@ model = OpenAIModel(
 
 # With response caching
 model = OpenAIModel(
-    model_id="gpt-4o-mini",
+    model_id="gpt-5-mini",
     temperature=0.7,
     enable_cache=True,
     cache_ttl_seconds=3600  # 1 hour cache
@@ -154,11 +154,11 @@ config = AgentConfig(model=model)
 
 | Use Case | Recommended Model | Reasoning |
 |----------|------------------|-----------|
-| General purpose | `gpt-4o` | Balanced performance and cost |
-| Low latency | `gpt-4o-mini` | Fast, cost-effective |
+| General purpose | `gpt-5.2` | Balanced performance and cost |
+| Low latency | `gpt-5-mini` | Fast, cost-effective |
 | Complex reasoning | `claude-sonnet-4-5` | Superior reasoning capabilities |
-| Long context | `claude-sonnet-4-5` | 200K token context window |
-| Cost-sensitive | `gpt-4o-mini` | Lowest cost per token |
+| Long context | `gemini-3-pro` | 1 million token context window |
+| Cost-sensitive | `gpt-5-nano` | Lowest cost per token |
 | Production (AWS) | Bedrock models | Better rate limits, SLAs |
 
 ## Tool Registration
@@ -651,7 +651,7 @@ config = AgentConfig(
     validation_rules={
         "require_tools": True,  # Require at least one tool
         "max_prompt_length": 1000,  # Limit system prompt length
-        "allowed_models": ["gpt-4o", "gpt-4o-mini"],  # Whitelist models
+        "allowed_models": ["gpt-5.2", "gpt-5-mini"],  # Whitelist models
     }
 )
 ```
@@ -691,7 +691,7 @@ except ValueError as e:
 from spark.agents import Agent, AgentConfig
 from spark.models.openai import OpenAIModel
 
-model = OpenAIModel(model_id="gpt-4o")
+model = OpenAIModel(model_id="gpt-5-mini")
 config = AgentConfig(model=model)
 agent = Agent(config=config)
 ```
@@ -752,7 +752,7 @@ from spark.agents import Agent, AgentConfig, ChainOfThoughtStrategy
 from spark.models.openai import OpenAIModel
 
 model = OpenAIModel(
-    model_id="gpt-4o-mini",  # Cheaper for dev
+    model_id="gpt-5-mini",  # Cheaper for dev
     enable_cache=True,  # Fast iteration
     cache_ttl_seconds=3600
 )
@@ -811,7 +811,7 @@ Speed up iteration:
 
 ```python
 model = OpenAIModel(
-    model_id="gpt-4o",
+    model_id="gpt-5-mini",
     enable_cache=True,
     cache_ttl_seconds=3600
 )

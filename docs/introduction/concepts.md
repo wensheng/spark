@@ -582,7 +582,7 @@ from spark.models.openai import OpenAIModel
 from spark.models.bedrock import BedrockModel
 
 # OpenAI
-model = OpenAIModel(model_id="gpt-4o")
+model = OpenAIModel(model_id="gpt-5-mini")
 
 # Bedrock
 model = BedrockModel(model_id="us.anthropic.claude-sonnet-4-5-20250929-v1:0")

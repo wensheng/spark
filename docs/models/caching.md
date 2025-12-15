@@ -27,7 +27,7 @@ from spark.models.openai import OpenAIModel
 
 # Create model with caching enabled
 model = OpenAIModel(
-    model_id="gpt-4o",
+    model_id="gpt-5-mini",
     enable_cache=True,
     cache_ttl_seconds=3600  # 1 hour
 )
@@ -56,7 +56,7 @@ assert response1.content == response2.content
 ```python
 # Avoid repeated API calls while iterating on code
 dev_model = OpenAIModel(
-    model_id="gpt-4o-mini",
+    model_id="gpt-5-mini-mini",
     enable_cache=True,
     cache_ttl_seconds=7200  # 2 hours
 )
@@ -66,7 +66,7 @@ dev_model = OpenAIModel(
 ```python
 # Deterministic test responses without mocking
 test_model = OpenAIModel(
-    model_id="gpt-4o-mini",
+    model_id="gpt-5-mini-mini",
     enable_cache=True,
     cache_ttl_seconds=86400  # 24 hours
 )
@@ -76,7 +76,7 @@ test_model = OpenAIModel(
 ```python
 # Fast iteration during prototyping
 prototype_model = OpenAIModel(
-    model_id="gpt-4o",
+    model_id="gpt-5-mini",
     enable_cache=True,
     cache_ttl_seconds=3600  # 1 hour
 )
@@ -86,7 +86,7 @@ prototype_model = OpenAIModel(
 ```python
 # Cache frequently asked questions
 faq_model = OpenAIModel(
-    model_id="gpt-4o-mini",
+    model_id="gpt-5-mini-mini",
     enable_cache=True,
     cache_ttl_seconds=86400  # 24 hours
 )
@@ -98,7 +98,7 @@ faq_model = OpenAIModel(
 ```python
 # Disable caching for fresh responses
 prod_model = OpenAIModel(
-    model_id="gpt-4o",
+    model_id="gpt-5-mini",
     enable_cache=False  # Default
 )
 ```
@@ -107,7 +107,7 @@ prod_model = OpenAIModel(
 ```python
 # Don't cache when responses need to be current
 realtime_model = OpenAIModel(
-    model_id="gpt-4o",
+    model_id="gpt-5-mini",
     enable_cache=False
 )
 ```
@@ -117,7 +117,7 @@ realtime_model = OpenAIModel(
 # Don't cache personalized responses
 # (unless you include user ID in cache key via messages)
 personalized_model = OpenAIModel(
-    model_id="gpt-4o",
+    model_id="gpt-5-mini",
     enable_cache=False
 )
 ```
@@ -130,7 +130,7 @@ Configure caching behavior via model constructor:
 
 ```python
 model = OpenAIModel(
-    model_id="gpt-4o",
+    model_id="gpt-5-mini",
     enable_cache=True,           # Enable/disable caching
     cache_ttl_seconds=86400      # Cache lifetime (default: 24 hours)
 )
@@ -146,28 +146,28 @@ model = OpenAIModel(
 ```python
 # 1 hour cache (rapid development)
 model = OpenAIModel(
-    model_id="gpt-4o-mini",
+    model_id="gpt-5-mini-mini",
     enable_cache=True,
     cache_ttl_seconds=3600
 )
 
 # 24 hours cache (default, good for testing)
 model = OpenAIModel(
-    model_id="gpt-4o",
+    model_id="gpt-5-mini",
     enable_cache=True,
     cache_ttl_seconds=86400
 )
 
 # 7 days cache (long-term prototyping)
 model = OpenAIModel(
-    model_id="gpt-4o-mini",
+    model_id="gpt-5-mini-mini",
     enable_cache=True,
     cache_ttl_seconds=604800
 )
 
 # Effectively permanent (1 year)
 model = OpenAIModel(
-    model_id="gpt-4o",
+    model_id="gpt-5-mini",
     enable_cache=True,
     cache_ttl_seconds=31536000
 )
@@ -182,7 +182,7 @@ The cache system generates unique keys based on request parameters:
 Cache keys are generated from:
 
 1. **Provider**: Model provider (openai, bedrock, etc.)
-2. **Model ID**: Specific model identifier (gpt-4o, claude-3, etc.)
+2. **Model ID**: Specific model identifier (gpt-5-mini, claude-3, etc.)
 3. **Messages**: Full conversation history
 4. **System Prompt**: System instructions
 5. **Tools**: Tool specifications (if using tool calling)
@@ -193,7 +193,7 @@ Cache keys are generated from:
 ```python
 # Key 1: Simple text completion
 messages1 = [{"role": "user", "content": [{"text": "Hello"}]}]
-# Cache key includes: openai|gpt-4o|messages_hash|no_system|no_tools|temp_0.7
+# Cache key includes: openai|gpt-5-mini|messages_hash|no_system|no_tools|temp_0.7
 
 # Key 2: Different message (different key)
 messages2 = [{"role": "user", "content": [{"text": "Goodbye"}]}]
@@ -281,7 +281,7 @@ Each cached response is stored as a JSON file:
     "timestamp": 1638360000.123,
     "ttl": 86400,
     "provider": "openai",
-    "model_id": "gpt-4o"
+    "model_id": "gpt-5-mini"
 }
 ```
 
@@ -387,7 +387,7 @@ Typical performance comparison:
 
 | Operation | Time | Speedup |
 |-----------|------|---------|
-| API call (OpenAI GPT-4o) | ~2-5 seconds | 1x |
+| API call (OpenAI GPT-5-mini) | ~2-5 seconds | 1x |
 | API call (network delay) | +0.5-2 seconds | - |
 | Cache hit (local disk) | ~5-20 ms | 100-500x |
 | Cache hit (warm) | ~1-5 ms | 500-2000x |
@@ -398,7 +398,7 @@ Typical performance comparison:
 import time
 
 model = OpenAIModel(
-    model_id="gpt-4o-mini",
+    model_id="gpt-5-mini-mini",
     enable_cache=True
 )
 
@@ -452,7 +452,7 @@ The cache system is thread-safe and supports concurrent access:
 import asyncio
 
 model = OpenAIModel(
-    model_id="gpt-4o-mini",
+    model_id="gpt-5-mini-mini",
     enable_cache=True
 )
 
@@ -498,7 +498,7 @@ from spark.models.openai import OpenAIModel
 def cached_model():
     """Model with caching for deterministic tests."""
     return OpenAIModel(
-        model_id="gpt-4o-mini",
+        model_id="gpt-5-mini-mini",
         enable_cache=True,
         cache_ttl_seconds=86400  # 24 hours
     )
@@ -538,7 +538,7 @@ test_cases = [
     "How does caching work?"
 ]
 
-model = OpenAIModel(model_id="gpt-4o-mini", enable_cache=True)
+model = OpenAIModel(model_id="gpt-5-mini", enable_cache=True)
 await warmup_cache(model, test_cases)
 
 # Now tests run instantly
@@ -569,10 +569,10 @@ Cache some calls but not others:
 
 ```python
 # Model with caching disabled by default
-model = OpenAIModel(model_id="gpt-4o", enable_cache=False)
+model = OpenAIModel(model_id="gpt-5-mini", enable_cache=False)
 
 # Enable for specific expensive calls
-expensive_model = OpenAIModel(model_id="gpt-4o", enable_cache=True)
+expensive_model = OpenAIModel(model_id="gpt-5-mini", enable_cache=True)
 
 # Use different models based on need
 if is_expensive_query:
@@ -640,7 +640,7 @@ class CacheMonitor:
 
 # Use monitor
 monitor = CacheMonitor()
-model = OpenAIModel(model_id="gpt-4o-mini", enable_cache=True)
+model = OpenAIModel(model_id="gpt-5-mini-mini", enable_cache=True)
 
 for query in queries:
     messages = [{"role": "user", "content": [{"text": query}]}]
@@ -654,7 +654,7 @@ print(f"Cache hit rate: {monitor.get_hit_rate():.1%}")
 ```python
 import os
 
-def create_model(model_id="gpt-4o"):
+def create_model(model_id="gpt-5-mini"):
     """Create model with environment-aware caching."""
     is_dev = os.getenv("ENV", "development") != "production"
 
@@ -675,7 +675,7 @@ model = create_model()
 ```python
 # Development
 dev_model = OpenAIModel(
-    model_id="gpt-4o-mini",
+    model_id="gpt-5-mini-mini",
     enable_cache=True,
     cache_ttl_seconds=7200
 )
@@ -686,7 +686,7 @@ dev_model = OpenAIModel(
 ```python
 # Production
 prod_model = OpenAIModel(
-    model_id="gpt-4o",
+    model_id="gpt-5-mini",
     enable_cache=False
 )
 ```
@@ -696,14 +696,14 @@ prod_model = OpenAIModel(
 ```python
 # Short TTL for changing data (1 hour)
 model = OpenAIModel(
-    model_id="gpt-4o",
+    model_id="gpt-5-mini",
     enable_cache=True,
     cache_ttl_seconds=3600
 )
 
 # Long TTL for stable data (7 days)
 model = OpenAIModel(
-    model_id="gpt-4o-mini",
+    model_id="gpt-5-mini-mini",
     enable_cache=True,
     cache_ttl_seconds=604800
 )
@@ -771,7 +771,7 @@ response = await model.get_text(
 1. **Caching not enabled**:
    ```python
    # Fix: Enable caching
-   model = OpenAIModel(model_id="gpt-4o", enable_cache=True)
+   model = OpenAIModel(model_id="gpt-5-mini", enable_cache=True)
    ```
 
 2. **Parameters changing**:
@@ -814,7 +814,7 @@ manager.clear_all()
 
 # 4. Reduce TTL
 model = OpenAIModel(
-    model_id="gpt-4o",
+    model_id="gpt-5-mini",
     enable_cache=True,
     cache_ttl_seconds=3600  # Shorter TTL
 )
@@ -843,7 +843,7 @@ export SPARK_CACHE_DIR="/tmp/spark-cache"
 ```python
 # 1. Reduce TTL
 model = OpenAIModel(
-    model_id="gpt-4o",
+    model_id="gpt-5-mini",
     enable_cache=True,
     cache_ttl_seconds=1800  # 30 minutes
 )
@@ -853,7 +853,7 @@ from spark.models.cache import CacheManager
 CacheManager.get_instance().clear_all()
 
 # 3. Disable caching for fresh data
-model = OpenAIModel(model_id="gpt-4o", enable_cache=False)
+model = OpenAIModel(model_id="gpt-5-mini", enable_cache=False)
 ```
 
 ## Next Steps

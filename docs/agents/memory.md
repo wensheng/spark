@@ -186,7 +186,7 @@ agent = Agent(config=config)
 from spark.agents import Agent, AgentConfig, MemoryPolicy
 from spark.models.openai import OpenAIModel
 
-model = OpenAIModel(model_id="gpt-4o")
+model = OpenAIModel(model_id="gpt-5-mini")
 config = AgentConfig(
     model=model,
     memory_policy=MemoryPolicy.FULL,
@@ -249,7 +249,7 @@ agent = Agent(config=config)
 from spark.agents import Agent, AgentConfig, MemoryPolicy
 from spark.models.openai import OpenAIModel
 
-model = OpenAIModel(model_id="gpt-4o")
+model = OpenAIModel(model_id="gpt-5-mini")
 config = AgentConfig(
     model=model,
     memory_policy=MemoryPolicy.SLIDING_WINDOW,
@@ -284,7 +284,7 @@ For production use with accurate counting, consider integrating `tiktoken`:
 ```python
 import tiktoken
 
-def count_tokens(text: str, model: str = "gpt-4o") -> int:
+def count_tokens(text: str, model: str = "gpt-5-mini") -> int:
     """Count tokens accurately."""
     encoding = tiktoken.encoding_for_model(model)
     return len(encoding.encode(text))
@@ -342,10 +342,10 @@ from spark.agents import Agent, AgentConfig, MemoryPolicy
 from spark.models.openai import OpenAIModel
 
 # Main model for conversation
-main_model = OpenAIModel(model_id="gpt-4o")
+main_model = OpenAIModel(model_id="gpt-5-mini")
 
 # Lightweight model for summaries (optional)
-summary_model = OpenAIModel(model_id="gpt-4o-mini")
+summary_model = OpenAIModel(model_id="gpt-5-mini-mini")
 
 config = AgentConfig(
     model=main_model,
@@ -451,7 +451,7 @@ from spark.agents import Agent, AgentConfig, MemoryPolicy
 from spark.models.openai import OpenAIModel
 
 async def compare_policies():
-    model = OpenAIModel(model_id="gpt-4o-mini", enable_cache=True)
+    model = OpenAIModel(model_id="gpt-5-mini-mini", enable_cache=True)
 
     policies = [
         (MemoryPolicy.FULL, {}),

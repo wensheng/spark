@@ -34,7 +34,7 @@ config = RSIMetaGraphConfig(
 )
 
 # Create RSI meta-graph
-model = OpenAIModel(model_id="gpt-4o")
+model = OpenAIModel(model_id="gpt-5-mini")
 rsi = RSIMetaGraph(
     config=config,
     experience_db=experience_db,
@@ -541,7 +541,7 @@ config = RSIMetaGraphConfig(
 )
 
 # Create RSI meta-graph
-model = OpenAIModel(model_id="gpt-4o")
+model = OpenAIModel(model_id="gpt-5-mini")
 rsi = RSIMetaGraph(
     config=config,
     experience_db=experience_db,

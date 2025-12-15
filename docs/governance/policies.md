@@ -103,7 +103,7 @@ actions=["agent:tool_execute", "agent:model_invoke"]
 resources=["tool://web_search"]
 
 # Glob patterns
-resources=["model://gpt-4*"]  # Matches gpt-4, gpt-4-turbo, gpt-4o
+resources=["model://gpt-4*"]  # Matches gpt-4, gpt-4-turbo, gpt-5-mini
 resources=["dataset://production/*"]  # Matches any production dataset
 resources=["graph://*/nodes/Sensitive*"]  # Any graph, nodes starting with Sensitive
 

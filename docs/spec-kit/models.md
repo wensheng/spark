@@ -198,7 +198,7 @@ from spark.nodes.spec import (
 agent_config = EnhancedAgentConfigSpec(
     model=ModelSpec(
         provider="openai",
-        model_id="gpt-4o",
+        model_id="gpt-5-mini",
         temperature=0.7,
         max_tokens=2000
     ),
@@ -255,7 +255,7 @@ from spark.nodes.spec import ModelSpec
 
 model = ModelSpec(
     provider="openai",  # or "bedrock", "gemini"
-    model_id="gpt-4o",
+    model_id="gpt-5-mini",
     temperature=0.7,
     max_tokens=2000,
     top_p=0.9,
@@ -620,7 +620,7 @@ from pydantic import ValidationError
 
 try:
     config = EnhancedAgentConfigSpec(
-        model="gpt-4o",
+        model="gpt-5-mini",
         tool_choice="any",  # Requires tools!
         tools=[]  # Empty tools list
     )

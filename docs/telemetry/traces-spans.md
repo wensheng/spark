@@ -500,7 +500,7 @@ Attributes for LLM operation spans:
 
 ```python
 span.set_attribute("llm.provider", "openai")
-span.set_attribute("llm.model", "gpt-4o")
+    span.set_attribute("llm.model", "gpt-5-mini")
 span.set_attribute("llm.input_tokens", 1500)
 span.set_attribute("llm.output_tokens", 800)
 span.set_attribute("llm.cost", 0.0235)

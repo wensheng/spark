@@ -66,7 +66,7 @@ def get_code_examples(topic: str) -> str:
     return f"Code examples for {topic}:\n{examples}"
 
 # Register tools with agent
-model = OpenAIModel(model_id="gpt-4o")
+model = OpenAIModel(model_id="gpt-5-mini")
 config = AgentConfig(
     model=model,
     tools=[search_documentation, get_code_examples],

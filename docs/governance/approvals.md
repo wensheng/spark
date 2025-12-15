@@ -363,7 +363,7 @@ deletion_approval_policy = PolicyRule(
 
 # Configure agent with policy
 config = AgentConfig(
-    model=OpenAIModel(model_id="gpt-4o"),
+    model=OpenAIModel(model_id="gpt-5-mini"),
     tools=[delete_user_data],
     policy_set=PolicySet(
         default_effect=PolicyEffect.ALLOW,

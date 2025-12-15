@@ -328,7 +328,7 @@ edge_optimizer = EdgeOptimizer()
 parallel_analyzer = ParallelizationAnalyzer()
 
 # Step 2: Generate structural hypotheses
-model = OpenAIModel(model_id="gpt-4o")
+model = OpenAIModel(model_id="gpt-5-mini")
 generator = HypothesisGeneratorNode(
     model=model,
     hypothesis_types=[

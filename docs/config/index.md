@@ -32,7 +32,7 @@ export OPENAI_API_KEY="sk-..."
 from spark.models.openai import OpenAIModel
 
 # Uses OPENAI_API_KEY environment variable
-model = OpenAIModel(model_id="gpt-4o")
+model = OpenAIModel(model_id="gpt-5-mini")
 ```
 
 #### `OPENAI_BASE_URL`
@@ -66,11 +66,11 @@ export OPENAI_BASE_URL="http://localhost:8000/v1"
 from spark.models.openai import OpenAIModel
 
 # Will use OPENAI_BASE_URL if set
-model = OpenAIModel(model_id="gpt-4o")
+model = OpenAIModel(model_id="gpt-5-mini")
 
 # Override environment variable
 model = OpenAIModel(
-    model_id="gpt-4o",
+    model_id="gpt-5-mini",
     client_args={"base_url": "http://localhost:8000/v1"}
 )
 ```
@@ -175,8 +175,8 @@ export SPARK_PRICING_CONFIG="/path/to/custom_pricing.json"
 ```json
 {
   "openai": {
-    "gpt-4o": {"input": 5.00, "output": 15.00},
-    "gpt-4o-mini": {"input": 0.15, "output": 0.60}
+    "gpt-5-mini": {"input": 5.00, "output": 15.00},
+    "gpt-5-mini-mini": {"input": 0.15, "output": 0.60}
   },
   "anthropic": {
     "claude-3-opus": {"input": 15.00, "output": 75.00}
@@ -232,7 +232,7 @@ from spark.models.openai import OpenAIModel
 
 # Enable caching with custom cache directory
 model = OpenAIModel(
-    model_id="gpt-4o",
+    model_id="gpt-5-mini",
     enable_cache=True,
     cache_ttl_seconds=3600  # 1 hour
 )
@@ -440,16 +440,16 @@ os.environ["OPENAI_BASE_URL"] = "http://localhost:8000"
 
 # 1. Explicit config (highest priority)
 model = OpenAIModel(
-    model_id="gpt-4o",
+    model_id="gpt-5-mini",
     client_args={"base_url": "http://custom:8000"}  # This wins
 )
 
 # 2. Environment variable
-model = OpenAIModel(model_id="gpt-4o")  # Uses OPENAI_BASE_URL
+model = OpenAIModel(model_id="gpt-5-mini")  # Uses OPENAI_BASE_URL
 
 # 3. Default value
 del os.environ["OPENAI_BASE_URL"]
-model = OpenAIModel(model_id="gpt-4o")  # Uses default OpenAI endpoint
+model = OpenAIModel(model_id="gpt-5-mini")  # Uses default OpenAI endpoint
 ```
 
 ## Security Best Practices
