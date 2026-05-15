@@ -1,8 +1,12 @@
-# Spark Actor Framework
+# Spark Framework
 
-Spark is an async-first actor framework for Python 3.13+.
+Spark is an async-first, zero-dependency, actor model framework for Python.
 
-The public runtime is built on `asyncio`: actors process one message at a time,
+## Install
+```bash
+pip install spark
+```
+
 mailboxes are async queues, wakeups are event-loop timers, fd watching uses the
 event loop, and remote TCP messaging uses asyncio streams.
 
@@ -156,3 +160,12 @@ Use thread workers for parallel external I/O such as LLM calls, and process
 workers for picklable CPU-style jobs. See `examples/llm_troupe_translation.py`
 and `examples/process_troupe_cpu.py`.
 
+## Development
+
+```bash
+uv venv -p 3.13
+uv pip install -e ".[dev,test]"
+uv run pytest
+uv run ruff check spark/actor/base.py spark/runtime/async_backend.py spark/runtime/backend.py spark/system.py spark/transport/async_tcp.py spark/contrib/llm spark/contrib/troupe.py tests/async
+uv run mypy spark/actor/base.py spark/runtime/async_backend.py spark/runtime/backend.py spark/system.py spark/transport/async_tcp.py spark/contrib/llm spark/contrib/troupe.py
+```

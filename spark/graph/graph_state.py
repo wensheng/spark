@@ -1,9 +1,8 @@
 """Graph-level state management with pluggable backends."""
 
 from contextlib import asynccontextmanager
+from dataclasses import fields, is_dataclass
 from typing import Any
-
-from pydantic import BaseModel
 
 from spark.graph.state_backend import InMemoryStateBackend, StateBackend
 
@@ -22,13 +21,14 @@ class GraphState:
         self,
         initial_state: dict[str, Any] | None = None,
         backend: StateBackend | None = None,
-        schema_model: type[BaseModel] | BaseModel | None = None,
+        schema_model: type | Any | None = None,
     ) -> None:
         """Initialize the graph state wrapper.
 
         Args:
             initial_state: Optional dictionary to initialize state.
             backend: Optional custom backend. Defaults to in-memory backend.
+            schema_model: Optional dataclass type (or instance) describing state shape.
         """
         self._backend = backend or InMemoryStateBackend(initial_state)
         self._initialized = False
@@ -38,30 +38,32 @@ class GraphState:
         self._schema_cls = self._normalize_schema(schema_model)
         self._schema_metadata = self._build_schema_metadata(self._schema_cls)
 
-    def _normalize_schema(self, schema_model: type[BaseModel] | BaseModel | None) -> type[BaseModel] | None:
+    def _normalize_schema(self, schema_model: type | Any | None) -> type | None:
         if schema_model is None:
             return None
-        if isinstance(schema_model, type) and issubclass(schema_model, BaseModel):
+        if isinstance(schema_model, type) and is_dataclass(schema_model):
             return schema_model
-        if isinstance(schema_model, BaseModel):
-            return schema_model.__class__
+        if is_dataclass(schema_model):
+            return type(schema_model)
         raise TypeError(f"Invalid schema model: {schema_model!r}")
 
-    def _build_schema_metadata(self, schema_cls: type[BaseModel] | None) -> dict[str, Any] | None:
+    def _build_schema_metadata(self, schema_cls: type | None) -> dict[str, Any] | None:
         if schema_cls is None:
             return None
         metadata = {
             "name": getattr(schema_cls, "schema_name", schema_cls.__name__),
             "version": getattr(schema_cls, "schema_version", "1.0"),
             "module": f"{schema_cls.__module__}:{schema_cls.__name__}",
-            "json_schema": schema_cls.model_json_schema(),
+            "fields": [{"name": f.name, "type": str(f.type)} for f in fields(schema_cls)],
         }
         return metadata
 
     def _validate_state(self, candidate: dict[str, Any]) -> None:
         if self._schema_cls is None:
             return
-        self._schema_cls.model_validate(candidate)
+        known = {f.name for f in fields(self._schema_cls)}
+        filtered = {k: v for k, v in candidate.items() if k in known}
+        self._schema_cls(**filtered)
 
     async def initialize(self) -> None:
         """Initialize the backend once graph runtime is ready."""
