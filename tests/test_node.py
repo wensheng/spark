@@ -8,32 +8,44 @@ from spark.core.actor_spec import ActorSpec
 from spark.core.exceptions import ActorNotStartedError
 from spark.core.identity import ActorId, SyndicateId
 from spark.core.message import Message
-from spark.node.base import _FORWARDED_METADATA_KEY, Node, NodeConfig
-from spark.system import Syndicate
+from spark.node.base import _FORWARDED_METADATA_KEY, EdgeCondition, Node, NodeConfig, RouteContext
+from spark.system.syndicate import Syndicate
 
 
 @dataclass
 class RecordingContext:
     actor_id: ActorId
     address: ActorAddress
+    syndicate_address: ActorAddress
     parent: ActorAddress | None = None
     sent: list[tuple[ActorAddress, Any]] = field(default_factory=list)
 
-    async def tell(self, target: ActorAddress, message: Any) -> None:
+    async def tell(self, message: Any, target: ActorAddress) -> None:
         self.sent.append((target, message))
 
-    async def ask(self, target: ActorAddress, message: Any, timeout: float | None = None) -> Any:
+    async def ask(self, message: Any, target: ActorAddress, timeout: float | None = None) -> Any:
         return {"target": target, "message": message, "timeout": timeout}
 
-    async def create_actor(
-        self, actor_class: type[Actor], *args: Any, **kwargs: Any
-    ) -> ActorAddress:
+    async def create_actor(self, actor_class: type[Actor], *args: Any, **kwargs: Any) -> ActorAddress:
         return ActorAddress(ActorId(syndicate_id=self.actor_id.syndicate_id))
 
     async def create_actor_from_spec(self, spec: ActorSpec) -> ActorAddress:
         return ActorAddress(ActorId(syndicate_id=self.actor_id.syndicate_id))
 
-    def schedule_after(self, delay: float, payload: Any = None) -> None:
+    def schedule_after(
+        self,
+        delay: float,
+        payload: Any = None,
+        *,
+        durable: bool = False,
+        timer_id: str | None = None,
+    ) -> None:
+        return None
+
+    async def persist_event(self, event: Any) -> None:
+        return None
+
+    async def save_snapshot(self, state: Any, *, sequence: int | None = None) -> None:
         return None
 
     async def watch(self, *, read=(), write=()) -> None:
@@ -48,7 +60,8 @@ class RecordingContext:
 
 def make_context() -> RecordingContext:
     actor_id = ActorId(SyndicateId())
-    return RecordingContext(actor_id=actor_id, address=ActorAddress(actor_id))
+    address = ActorAddress(actor_id)
+    return RecordingContext(actor_id=actor_id, address=address, syndicate_address=address)
 
 
 class UpperNode(Node):
@@ -179,7 +192,7 @@ async def test_node_forward_to_preserves_original_requester_for_final_reply() ->
         source_address = await system.start_actor(source)
         await system.start_actor(target)
 
-        result = await system.ask(source_address, "spark", timeout=1.0)
+        result = await system.ask("spark", source_address, timeout=1.0)
 
     assert result == "target:source:spark"
 
@@ -199,7 +212,7 @@ async def test_forwarded_terminal_node_without_reply_target_suppresses_reply_to_
 def test_node_forward_to_rejects_invalid_target() -> None:
     node = UpperNode()
 
-    with pytest.raises(TypeError, match="next_node must be a BaseNode"):
+    with pytest.raises(TypeError, match="next_node must be a Node"):
         node.forward_to(object())  # type: ignore[arg-type]
 
 
@@ -293,7 +306,7 @@ async def test_node_fanin_joins_outputs_from_prior_fanout() -> None:
         await system.start_actor(right)
         await system.start_actor(join)
 
-        result = await system.ask(source_address, "spark", timeout=1.0)
+        result = await system.ask("spark", source_address, timeout=1.0)
 
     assert sorted(result) == ["left:spark", "right:spark"]
 
@@ -316,6 +329,50 @@ async def test_node_goto_uses_expr_condition() -> None:
 
     assert result is None
     assert [target for target, _ in source_context.sent] == [high_context.address]
+
+
+@pytest.mark.asyncio
+async def test_node_goto_uses_output_root_expr_condition() -> None:
+    source = IdentityNode()
+    target = UpperNode()
+    source_context = make_context()
+    target_context = make_context()
+    source._bind_context(source_context)
+    target._bind_context(target_context)
+
+    source.goto(target, expr="$.score > 0.5")
+    result = await source._process(Message({"score": 0.75}))
+
+    assert result is None
+    assert [target for target, _ in source_context.sent] == [target_context.address]
+
+
+@pytest.mark.asyncio
+async def test_node_goto_uses_callable_condition() -> None:
+    source = IdentityNode()
+    target = UpperNode()
+    source_context = make_context()
+    target_context = make_context()
+    source._bind_context(source_context)
+    target._bind_context(target_context)
+
+    source.goto(target, condition=lambda route: route.outputs["score"] > 0.5)
+    result = await source._process(Message({"score": 0.75}))
+
+    assert result is None
+    assert [target for target, _ in source_context.sent] == [target_context.address]
+
+
+def test_edge_condition_rejects_unsupported_expression_nodes() -> None:
+    with pytest.raises(ValueError, match="unsupported edge condition expression"):
+        EdgeCondition(expr="outputs.score + 1 > 2")
+
+
+def test_edge_condition_accepts_ast_validated_membership() -> None:
+    condition = EdgeCondition(expr="$.grade in ['A', 'B']")
+
+    assert condition.check(RouteContext(outputs={"grade": "A"}))
+    assert not condition.check(RouteContext(outputs={"grade": "C"}))
 
 
 @pytest.mark.asyncio

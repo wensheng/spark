@@ -7,7 +7,7 @@ import pytest
 
 from spark import Actor, ActorAddress
 from spark.core.exceptions import ActorNotStartedError
-from spark.core.identity import ActorId, Envelope, SyndicateId
+from spark.core.identity import ActorId, SyndicateId
 from spark.core.message import Message
 
 
@@ -15,16 +15,27 @@ from spark.core.message import Message
 class RecordingWatchContext:
     actor_id: ActorId
     address: ActorAddress
+    syndicate_address: ActorAddress
     parent: ActorAddress | None = None
     watch_calls: list[tuple[tuple[int, ...], tuple[int, ...]]] = field(default_factory=list)
 
-    def tell(self, target: ActorAddress, message: Any) -> None: ...
-    async def tell_async(self, target: ActorAddress, message: Any) -> None: ...
-    def ask(self, target: ActorAddress, message: Any, timeout: float | None = None) -> Any: ...
-    async def ask_async(self, target: ActorAddress, message: Any, timeout: float | None = None) -> Any: ...
+    def tell(self, message: Any, target: ActorAddress) -> None: ...
+    async def tell_async(self, message: Any, target: ActorAddress) -> None: ...
+    def ask(self, message: Any, target: ActorAddress, timeout: float | None = None) -> Any: ...
+    async def ask_async(self, message: Any, target: ActorAddress, timeout: float | None = None) -> Any: ...
     def create_actor(self, actor_class: type[Actor], *args: Any, **kwargs: Any) -> ActorAddress:
         return ActorAddress(ActorId(self.actor_id.syndicate_id))
-    def schedule_after(self, timeout: float, payload: Any = None) -> None: ...
+
+    def schedule_after(
+        self,
+        timeout: float,
+        payload: Any = None,
+        *,
+        durable: bool = False,
+        timer_id: str | None = None,
+    ) -> None: ...
+    async def persist_event(self, event: Any) -> None: ...
+    async def save_snapshot(self, state: Any, *, sequence: int | None = None) -> None: ...
     async def stop(self) -> None: ...
     async def syndicate_shutdown(self) -> None: ...
 
@@ -59,7 +70,8 @@ class TestActorWatch:
     async def test_watch_delegates_to_context(self) -> None:
         sys_id = SyndicateId()
         actor_id = ActorId(sys_id)
-        ctx = RecordingWatchContext(actor_id=actor_id, address=ActorAddress(actor_id))
+        address = ActorAddress(actor_id)
+        ctx = RecordingWatchContext(actor_id=actor_id, address=address, syndicate_address=address)
         actor = WatchingActor()
         _bound(actor, ctx)
 
@@ -71,7 +83,8 @@ class TestActorWatch:
     async def test_watch_empty_clears(self) -> None:
         sys_id = SyndicateId()
         actor_id = ActorId(sys_id)
-        ctx = RecordingWatchContext(actor_id=actor_id, address=ActorAddress(actor_id))
+        address = ActorAddress(actor_id)
+        ctx = RecordingWatchContext(actor_id=actor_id, address=address, syndicate_address=address)
         actor = WatchingActor()
         _bound(actor, ctx)
 

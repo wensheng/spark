@@ -5,13 +5,13 @@ from spark.core.exceptions import (
     ActorAlreadyStartedError,
     ActorNotFound,
     ActorNotStartedError,
-    SyndicateError,
     ActorTimeout,
     InvalidActorSpecError,
     InvalidEnvelopeError,
     MessageDeliveryError,
     ServiceNotFoundError,
     SparkException,
+    SyndicateError,
     UnsupportedBackendError,
 )
 

@@ -1,14 +1,14 @@
 """Tests for optional Spark services (async version)."""
 
 import hashlib
+import logging
 from pathlib import Path
-from typing import Any
 
 import pytest
 
 from spark import Actor, ActorAddress, Syndicate
 from spark.core.actor_spec import ActorSpec
-from spark.core.identity import ActorId, SyndicateId
+from spark.core.identity import ActorId, Envelope, SyndicateId
 from spark.core.message import Message
 from spark.services import (
     ArtifactRef,
@@ -174,6 +174,7 @@ class TestDiagnosticsService:
     async def test_syndicate_diagnostics_snapshot(self) -> None:
         async with Syndicate("async-diag-snap") as system:
             actor = await system.create_actor(ServiceActor)
+            assert await system.ask("hello", actor, timeout=1.0) == "hello"
 
             snapshot = system.diagnostics_snapshot()
 
@@ -181,22 +182,65 @@ class TestDiagnosticsService:
             assert snapshot.address == system.address
             assert snapshot.runtime.backend_type == "async-inprocess"
             assert snapshot.runtime.actor_count == 1
-            assert actor.actor_id in {a.actor_id for a in snapshot.runtime.actors}
+            actor_diag = next(a for a in snapshot.runtime.actors if a.actor_id == actor.actor_id)
+            assert actor_diag.processed_count >= 1
+            assert snapshot.runtime.uptime_seconds >= 0
+            assert snapshot.runtime.event_count >= 1
 
     @pytest.mark.asyncio
-    async def test_diagnostics_reports_dead_letters(self) -> None:
+    async def test_diagnostics_reports_dead_letters(self, caplog: pytest.LogCaptureFixture) -> None:
         async with Syndicate("async-diag-dead") as system:
             missing = ActorAddress(ActorId(system.syndicate_id))
 
-            await system.tell(missing, "lost")
+            with caplog.at_level(logging.WARNING, logger="spark.runtime.async_backend"):
+                await system.tell("lost", missing)
             snapshot = system.diagnostics_snapshot()
 
             assert snapshot.runtime.dead_letter_count == 1
+            assert snapshot.runtime.dead_letter_summary == {"target not found": 1}
             assert snapshot.dead_letters[0].reason == "target not found"
+            assert snapshot.transport_health == {}
+            assert "spark delivery failed" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_runtime_events_and_traceparent_survive_actor_hops(self) -> None:
+        class TraceSink(Actor):
+            async def process(self, message: Message) -> str | None:
+                return message.metadata.get("traceparent")
+
+        class TraceForwarder(Actor):
+            def __init__(self) -> None:
+                super().__init__()
+                self.requester: ActorAddress | None = None
+
+            async def process(self, message: Message) -> None:
+                if isinstance(message.content, ActorAddress) and message.sender is not None:
+                    self.requester = message.sender
+                    await self.tell("trace", message.content)
+                elif isinstance(message.content, str) and self.requester is not None:
+                    await self.tell(message.content, self.requester)
+
+        async with Syndicate("async-trace-events") as system:
+            sink = await system.create_actor(TraceSink)
+            forwarder = await system.create_actor(TraceForwarder)
+            traceparent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-00"
+
+            await system.backend.deliver(
+                Envelope(
+                    target=forwarder.actor_id,
+                    payload=sink,
+                    sender=system.address.actor_id,
+                    headers={"traceparent": traceparent},
+                )
+            )
+
+            assert await system.receive(timeout=1.0) == traceparent
+            kinds = {event.kind for event in system.events}
+            assert {"actor_started", "message_enqueued", "message_dequeued", "message_processed"} <= kinds
 
     @pytest.mark.asyncio
     async def test_syndicate_initializes_phase4_services(self) -> None:
-        async with Syndicate("async-phase4-services", remote=True) as system:
+        async with Syndicate("async-phase4-services", remote=True, transport_codec="trusted-pickle") as system:
             descriptor = system.membership.list_systems()[0]
             assert descriptor.syndicate_id == system.syndicate_id
             assert descriptor.address == system.address

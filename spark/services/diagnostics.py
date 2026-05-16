@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -34,6 +35,11 @@ class DiagnosableActorSystem(Protocol):
         """Return the remote transport address, if present."""
         ...
 
+    @property
+    def transport_health(self) -> Mapping[str, Mapping[str, object]]:
+        """Return remote transport route health."""
+        ...
+
 
 @dataclass(frozen=True, slots=True)
 class SystemDiagnosticsSnapshot:
@@ -44,6 +50,7 @@ class SystemDiagnosticsSnapshot:
     remote_address: tuple[str, int] | None
     runtime: RuntimeDiagnostics
     dead_letters: tuple[DeadLetter, ...]
+    transport_health: Mapping[str, Mapping[str, object]]
 
 
 class DiagnosticsService:
@@ -57,4 +64,5 @@ class DiagnosticsService:
             remote_address=system.remote_address,
             runtime=system.backend.diagnostics(),
             dead_letters=system.dead_letters,
+            transport_health=system.transport_health,
         )

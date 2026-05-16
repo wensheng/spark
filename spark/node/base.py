@@ -7,7 +7,6 @@ from __future__ import annotations
 import ast
 import copy
 import inspect
-import re
 import time
 from collections import deque
 from collections.abc import Awaitable, Callable, Mapping
@@ -22,7 +21,7 @@ from uuid import UUID, uuid4
 
 from typing_extensions import TypedDict  # PEP 728, available > 4.10.0, available in Python 3.15
 
-from spark.actor import Actor, ActorAddress
+from spark.actor import Actor, ActorAddress, ActorContext
 from spark.core.exceptions import ActorNotStartedError, SparkException
 from spark.core.message import Message
 
@@ -47,7 +46,7 @@ TNodeState = TypeVar("TNodeState", bound=NodeState)
 NodeHook = Callable[[Any, Any], Any | Awaitable[Any]]
 
 
-def default_node_state(**kwargs) -> NodeState:
+def default_node_state(**kwargs: Any) -> NodeState:
     """Create a default node state."""
     state: NodeState = {
         "context_snapshot": None,
@@ -124,7 +123,7 @@ class NodeContext[TNodeState: NodeState]:
     def snapshot(self) -> dict[str, Any]:
         """Return a deep copy of the current state for diagnostics."""
 
-        return _safe_copy(self.state)
+        return cast("dict[str, Any]", _safe_copy(self.state))
 
     def fork(self) -> NodeContext[TNodeState]:
         """Produce a copy suitable for branch execution."""
@@ -147,16 +146,16 @@ class RouteContext:
 
 
 def _is_node_instance(value: Any) -> bool:
-    """Return True for runtime BaseNode instances without importing BaseNode at module load time."""
+    """Return True for runtime Node instances before Node exists at module load time."""
 
-    base_node_type = globals().get("BaseNode")
-    return isinstance(base_node_type, type) and isinstance(value, base_node_type)
+    node_type = globals().get("Node")
+    return isinstance(node_type, type) and isinstance(value, node_type)
 
 
 class Chain:
     """A Chain is a sequence of nodes for human programmers."""
 
-    def __init__(self, nodes: list[BaseNode]) -> None:
+    def __init__(self, nodes: list[Node]) -> None:
         """Initialize the Chain with a list of nodes."""
         if not nodes or not all(_is_node_instance(n) for n in nodes):
             raise SparkException("Chain must be initialized with a non-empty list of Node instances.")
@@ -164,7 +163,7 @@ class Chain:
             raise SparkException("Chain must be initialized with at least 2 nodes.")
         self.nodes = nodes
 
-    def __rshift__(self, right: BaseNode | Chain) -> Chain:
+    def __rshift__(self, right: Node | Chain) -> Chain:
         """Use >> operator to connect to next node."""
         if isinstance(right, Chain):
             Edge(from_node=self.nodes[-1], to_node=right.nodes[0])
@@ -181,12 +180,10 @@ class Chain:
 class EdgeCondition:
     """A condition that determines the next node to run.
 
-    EdgeCondition supports two types of conditions for spec-compatible routing:
+    EdgeCondition supports three condition styles:
     - expr: Expression string (e.g., "$.outputs.score > 0.5")
     - equals: Dictionary for exact matching (e.g., {'action': 'search'})
-
-    Note: Lambda/callable conditions are NOT supported for spec compatibility.
-    Use expr or equals instead.
+    - predicate: Callable receiving RouteContext and returning bool
 
     Examples:
         # Expression-based
@@ -196,167 +193,196 @@ class EdgeCondition:
         # Equality-based
         EdgeCondition(equals={'action': 'search'})
         EdgeCondition(equals={'status': 'ready', 'count': 10})
+
+        # Callable
+        EdgeCondition(predicate=lambda route: route.outputs["score"] > 0.5)
     """
 
     expr: str | None = None
     equals: dict[str, Any] | None = None
+    predicate: Callable[[RouteContext], bool] | None = None
+    _tree: ast.Expression | None = field(init=False, default=None, repr=False, compare=False)
 
-    def __post_init__(self):
-        """Validate that at least one condition type is provided."""
-        if self.expr is None and self.equals is None:
-            # Allow no condition (always True)
-            pass
+    def __post_init__(self) -> None:
+        """Validate expression conditions up front."""
+        styles = [self.expr is not None, self.equals is not None, self.predicate is not None]
+        if sum(styles) > 1:
+            raise ValueError("EdgeCondition accepts only one of expr, equals, or predicate")
+        if self.expr is not None:
+            normalized = self._normalize_expr(self.expr)
+            try:
+                tree = ast.parse(normalized, mode="eval")
+            except SyntaxError as exc:
+                raise ValueError(f"invalid edge condition expression: {self.expr!r}") from exc
+            self._validate_expr(tree)
+            self._tree = tree
 
-    def check(self, node: Any) -> bool:
+    def check(self, route: RouteContext) -> bool:
         """Execute the condition check.
 
         Returns:
             True if condition passes, False otherwise
         """
+        if self.predicate is not None:
+            return bool(self.predicate(route))
+
         # equals shortcut on node.outputs
         # All key/value pairs must match (AND logic, not OR)
         if self.equals:
-            data = node.outputs or {}
-            try:
-                if not isinstance(data, dict):
-                    return False
-                # Check that ALL key/value pairs match
-                for k, v in self.equals.items():
-                    if data.get(k) != v:
-                        return False
-                return True
-            except Exception:
+            data = route.outputs or {}
+            if not isinstance(data, Mapping):
                 return False
+            return all(data.get(key) == value for key, value in self.equals.items())
 
         # Expression evaluator
-        if self.expr:
-            try:
-                return self._eval_expr(node, self.expr)
-            except Exception:
-                return False
+        if self._tree is not None:
+            return bool(self._eval_ast(self._tree.body, route))
 
         # No condition means always True
         return True
 
-    def _eval_expr(self, node: Any, expr: str) -> bool:
-        """Evaluate expression-based routing conditions.
+    @staticmethod
+    def _normalize_expr(expr: str) -> str:
+        normalized = expr.strip()
+        if normalized == "$":
+            return "outputs"
+        normalized = normalized.replace("$.outputs", "outputs")
+        normalized = normalized.replace("$.output", "output")
+        normalized = normalized.replace("$.inputs", "inputs")
+        normalized = normalized.replace("$.input", "input")
+        normalized = normalized.replace("$.", "outputs.")
+        return normalized
 
-        Supports:
-        - Comparison: ==, !=, >, <, >=, <=
-        - Logical: and, or, not
-        - Membership: in
-        - Nested paths: $.outputs.nested.key
-        - Examples:
-          - $.outputs.score > 0.5
-          - $.outputs.status == 'ready' and $.outputs.count >= 10
-          - $.outputs.category in ['A', 'B', 'C']
-          - not $.outputs.failed
-        """
-        # Handle logical operators (and, or) by splitting and recursing
-        if " and " in expr:
-            parts = expr.split(" and ", 1)
-            return self._eval_expr(node, parts[0].strip()) and self._eval_expr(node, parts[1].strip())
+    def _validate_expr(self, tree: ast.AST) -> None:
+        allowed_nodes = (
+            ast.Expression,
+            ast.BoolOp,
+            ast.UnaryOp,
+            ast.Compare,
+            ast.Name,
+            ast.Load,
+            ast.Attribute,
+            ast.Subscript,
+            ast.Constant,
+            ast.List,
+            ast.Tuple,
+            ast.Set,
+            ast.Dict,
+        )
+        allowed_ops = (
+            ast.And,
+            ast.Or,
+            ast.Not,
+            ast.Eq,
+            ast.NotEq,
+            ast.Gt,
+            ast.GtE,
+            ast.Lt,
+            ast.LtE,
+            ast.In,
+            ast.NotIn,
+            ast.Is,
+            ast.IsNot,
+        )
+        for node in ast.walk(tree):
+            if isinstance(node, allowed_ops):
+                continue
+            if not isinstance(node, allowed_nodes):
+                raise ValueError(f"unsupported edge condition expression: {type(node).__name__}")
+            if isinstance(node, ast.Name) and node.id not in {
+                "inputs",
+                "input",
+                "outputs",
+                "output",
+                "True",
+                "False",
+                "None",
+            }:
+                raise ValueError(f"unsupported edge condition name: {node.id}")
 
-        if " or " in expr:
-            parts = expr.split(" or ", 1)
-            return self._eval_expr(node, parts[0].strip()) or self._eval_expr(node, parts[1].strip())
-
-        # Handle not operator
-        if expr.strip().startswith("not "):
-            inner = expr.strip()[4:].strip()
-            # Check if inner is a boolean field access (no comparison)
-            bool_field_match = re.match(r"^\s*\$\.(?P<path>[a-zA-Z_][\w\.-]*)\s*$", inner)
-            if bool_field_match:
-                path = bool_field_match.group("path")
-                value = self._resolve_path(node, path)
-                # Truthiness check
-                return not bool(value)
-            return not self._eval_expr(node, inner)
-
-        # Handle membership operator (in)
-        # Pattern: $.outputs.key in [value1, value2, ...]
-        in_match = re.match(r"^\s*\$(?:\.(?P<path>[a-zA-Z_][\w\.-]*))?\s+in\s+(?P<rhs>.+?)\s*$", expr)
-        if in_match:
-            path = in_match.group("path")
-            rhs_raw = in_match.group("rhs")
-            rhs = self._parse_literal(rhs_raw)
-            value = self._resolve_path(node, path)
-            if not isinstance(rhs, (list, tuple, set)):
+    def _eval_ast(self, node: ast.AST, route: RouteContext) -> Any:
+        if isinstance(node, ast.Expression):
+            return self._eval_ast(node.body, route)
+        if isinstance(node, ast.BoolOp):
+            values = [bool(self._eval_ast(value, route)) for value in node.values]
+            if isinstance(node.op, ast.And):
+                return all(values)
+            if isinstance(node.op, ast.Or):
+                return any(values)
+        if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not):
+            return not bool(self._eval_ast(node.operand, route))
+        if isinstance(node, ast.Compare):
+            left = self._eval_ast(node.left, route)
+            for op, comparator in zip(node.ops, node.comparators, strict=True):
+                right = self._eval_ast(comparator, route)
+                if not self._compare(left, op, right):
+                    return False
+                left = right
+            return True
+        if isinstance(node, ast.Name):
+            if node.id in {"outputs", "output"}:
+                return route.outputs
+            if node.id in {"inputs", "input"}:
+                return route.inputs
+            if node.id == "True":
+                return True
+            if node.id == "False":
                 return False
-            return value in rhs
-
-        # Handle comparison operators
-        # Pattern: $.outputs.key <op> value
-        comparison_pattern = r"^\s*\$(?:\.(?P<path>[a-zA-Z_][\w\.-]*))?\s*(?P<op>==|!=|>=|<=|>|<)\s*(?P<rhs>.+?)\s*$"
-        comp_match = re.match(comparison_pattern, expr)
-        if comp_match:
-            path = comp_match.group("path")
-            op = comp_match.group("op")
-            rhs_raw = comp_match.group("rhs")
-            rhs = self._parse_literal(rhs_raw)
-
-            value = self._resolve_path(node, path)
-
-            # Perform comparison
+            if node.id == "None":
+                return None
+        if isinstance(node, ast.Attribute):
+            return self._get_nested(self._eval_ast(node.value, route), node.attr)
+        if isinstance(node, ast.Subscript):
+            source = self._eval_ast(node.value, route)
+            key = self._eval_ast(node.slice, route)
+            if isinstance(source, Mapping):
+                return source.get(key)
             try:
-                if op == "==":
-                    return value == rhs
-                if op == "!=":
-                    return value != rhs
-                if op == ">":
-                    return value > rhs
-                if op == "<":
-                    return value < rhs
-                if op == ">=":
-                    return value >= rhs
-                if op == "<=":
-                    return value <= rhs
-                return False
-            except (TypeError, AttributeError):
-                # Comparison failed (e.g., comparing incompatible types)
-                return False
-
-        # Handle direct boolean field access (no comparison operator)
-        # Pattern: $.outputs.key (for truthiness check)
-        bool_field_match = re.match(r"^\s*\$\.(?P<path>[a-zA-Z_][\w\.-]*)\s*$", expr)
-        if bool_field_match:
-            path = bool_field_match.group("path")
-            value = self._resolve_path(node, path)
-            return bool(value)
-
-        # If no pattern matched, return False
-        return False
+                return source[key]
+            except (TypeError, KeyError, IndexError):
+                return None
+        if isinstance(node, ast.Constant):
+            return node.value
+        if isinstance(node, ast.List):
+            return [self._eval_ast(item, route) for item in node.elts]
+        if isinstance(node, ast.Tuple):
+            return tuple(self._eval_ast(item, route) for item in node.elts)
+        if isinstance(node, ast.Set):
+            return {self._eval_ast(item, route) for item in node.elts}
+        if isinstance(node, ast.Dict):
+            return {
+                self._eval_ast(key, route): self._eval_ast(value, route)
+                for key, value in zip(node.keys, node.values, strict=True)
+                if key is not None
+            }
+        raise ValueError(f"unsupported edge condition expression: {type(node).__name__}")
 
     @staticmethod
-    def _resolve_path(node: Any, path: str | None) -> Any:
-        if path is None:
-            return getattr(node, "outputs", node)
-
-        root, separator, remainder = path.partition(".")
-        if root in {"outputs", "output"} and hasattr(node, "outputs"):
-            source = node.outputs
-            return source if not separator else EdgeCondition._get_nested(source, remainder)
-        if root in {"inputs", "input"} and hasattr(node, "inputs"):
-            source = node.inputs
-            return source if not separator else EdgeCondition._get_nested(source, remainder)
-
-        source = getattr(node, "outputs", node)
-        return EdgeCondition._get_nested(source, path)
-
-    @staticmethod
-    def _parse_literal(s: str) -> Any:
-        s = s.strip()
-        lowered = s.lower()
-        if lowered in {"true", "false"}:
-            return lowered == "true"
-        if lowered in {"null", "none"}:
-            return None
+    def _compare(left: Any, op: ast.cmpop, right: Any) -> bool:
         try:
-            return ast.literal_eval(s)
-        except Exception:
-            if (s.startswith("'") and s.endswith("'")) or (s.startswith('"') and s.endswith('"')):
-                return s[1:-1]
-            return s
+            if isinstance(op, ast.Eq):
+                return bool(left == right)
+            if isinstance(op, ast.NotEq):
+                return bool(left != right)
+            if isinstance(op, ast.Gt):
+                return bool(left > right)
+            if isinstance(op, ast.GtE):
+                return bool(left >= right)
+            if isinstance(op, ast.Lt):
+                return bool(left < right)
+            if isinstance(op, ast.LtE):
+                return bool(left <= right)
+            if isinstance(op, ast.In):
+                return bool(left in right)
+            if isinstance(op, ast.NotIn):
+                return bool(left not in right)
+            if isinstance(op, ast.Is):
+                return left is right
+            if isinstance(op, ast.IsNot):
+                return left is not right
+        except (TypeError, AttributeError):
+            return False
+        return False
 
     @staticmethod
     def _get_nested(d: Mapping[str, Any] | Any, path: str) -> Any:
@@ -374,7 +400,7 @@ class EdgeCondition:
             d = d.content
 
         if not isinstance(d, Mapping):
-            return None
+            return getattr(d, path, None)
 
         cur: Any = d
         for part in path.split("."):
@@ -390,8 +416,8 @@ class EdgeCondition:
 class Edge:
     """Represents a child node connection with edge conditions and priority."""
 
-    from_node: BaseNode
-    to_node: BaseNode | None = None
+    from_node: Node
+    to_node: Node | None = None
     id: UUID = field(default_factory=uuid4)
     description: str = field(default="")
     condition: EdgeCondition = field(default_factory=EdgeCondition)
@@ -399,13 +425,13 @@ class Edge:
     delay_seconds: float | None = None
     event_filter: EdgeCondition | None = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """Add this edge to the from_node's edges list."""
         self.from_node.edges.append(self)
         if self.to_node is not None:
             self.to_node._incoming_edges.append(self)
 
-    def __rshift__(self, right: Edge | BaseNode | Chain) -> Chain:
+    def __rshift__(self, right: Edge | Node | Chain) -> Chain:
         """Overload >> operator to add a next node / edge / chain."""
         if self.to_node is not None:
             raise SparkException("Edge already has a to_node")
@@ -498,7 +524,18 @@ def resolve_config_kwargs(inst: Node, config: NodeConfig | None, kwargs: dict[st
         setattr(inst, config_field.name, value)
 
 
-class BaseNode(Actor):
+class Node(Actor):
+    """
+    Actor-powered workflow node.
+
+    Node is abstract because user implementations still provide ``process``.
+    It owns routing edges, hook execution, fan-out/fan-in metadata, and actor
+    integration directly; ``BaseNode`` is retained only as a compatibility
+    alias at module bottom.
+    """
+
+    __spark_auto_start__ = False
+
     id: str
     type: str | None
     description: str | None
@@ -508,16 +545,37 @@ class BaseNode(Actor):
     pre_process_hooks: list[NodeHook]
     post_process_hooks: list[NodeHook]
     keep_in_state: list[str]
+    _process_no_arg: ClassVar[bool] = False
 
-    def __init__(self) -> None:
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        """
+        If subclass process has no argument other than self, set _process_no_arg.
+
+        User code should prefer ``process(self, message: Message)``; this keeps
+        compatibility with existing simple examples.
+        """
+        super().__init_subclass__(**kwargs)
+        process_impl = getattr(cls, "process", None)
+        is_abstract = getattr(process_impl, "__isabstractmethod__", False)
+        if process_impl and not is_abstract:
+            process_sig = inspect.signature(process_impl)
+            if len(process_sig.parameters) < 2:
+                cls._process_no_arg = True
+
+    def __init__(self, config: NodeConfig | None = None, **kwargs: Any) -> None:
         super().__init__()
         self.edges: list[Edge] = []
         self._incoming_edges: list[Edge] = []
         self._fanin_buffers: dict[str, dict[str, Message]] = {}
         self._last_inputs: Message | None = None
         self._outputs: Any = None
+        resolve_config_kwargs(self, config, kwargs)
 
-    def __rshift__(self, right: BaseNode | Edge | Chain) -> Chain:
+    def __repr__(self) -> str:
+        """Return a string representation of the node."""
+        return f"Node(name={self.__class__.__name__}, edges={self.edges})"
+
+    def __rshift__(self, right: Node | Edge | Chain) -> Chain:
         """Use ``node >> next_node`` syntax to connect graph nodes."""
         if isinstance(right, Chain):
             if right.nodes[0] is not self:
@@ -530,13 +588,13 @@ class BaseNode(Actor):
             if right.to_node is not None:
                 chain.nodes.append(right.to_node)
             return chain
-        if isinstance(right, BaseNode):
+        if _is_node_instance(right):
             Edge(from_node=self, to_node=right)
             return Chain([self, right])
         raise SparkException("Node can only be connected to a Node, Edge, or Chain.")
 
     @property
-    def actor_context(self):
+    def actor_context(self) -> ActorContext:
         """Return the actor runtime context, if this node is bound to an actor."""
         return self._require_context()
 
@@ -557,14 +615,14 @@ class BaseNode(Actor):
                 active_edges.append(edge)
         return active_edges
 
-    def get_next_nodes(self) -> list[BaseNode]:
+    def get_next_nodes(self) -> list[Node]:
         """Get the next nodes based on conditions and priorities."""
         return [edge.to_node for edge in self.iter_active_edges() if edge.to_node]
 
     def _normalize_edge_condition(
         self,
         *,
-        condition: str | EdgeCondition | None = None,
+        condition: str | EdgeCondition | Callable[[RouteContext], bool] | None = None,
         expr: str | None = None,
         equals: dict[str, Any] | None = None,
         allow_empty: bool = False,
@@ -590,16 +648,12 @@ class BaseNode(Actor):
         if isinstance(condition, EdgeCondition):
             return condition
         if callable(condition):
-            raise TypeError(
-                "Lambda/callable conditions are not supported for spec compatibility. "
-                "Use expr='...' or equals={...} instead.\n"
-                "Example: node.on(expr='$.outputs.score > 0.5') >> next_node"
-            )
+            return EdgeCondition(predicate=condition)
         raise TypeError(f"Invalid condition type: {type(condition)}")
 
     def on(
         self,
-        condition: str | EdgeCondition | None = None,
+        condition: str | EdgeCondition | Callable[[RouteContext], bool] | None = None,
         expr: str | None = None,
         priority: int = 0,
         **equals: Any,
@@ -615,8 +669,8 @@ class BaseNode(Actor):
 
     def goto(
         self,
-        next_node: BaseNode,
-        condition: EdgeCondition | str | None = None,
+        next_node: Node,
+        condition: EdgeCondition | str | Callable[[RouteContext], bool] | None = None,
         expr: str | None = None,
         priority: int = 0,
         **equals: Any,
@@ -625,7 +679,7 @@ class BaseNode(Actor):
 
         Args:
             next_node: The target node
-            condition: EdgeCondition or expression string (no callables)
+            condition: EdgeCondition, predicate callable, or expression string
             expr: Expression string condition
             priority: Higher-priority edges are evaluated and forwarded first
             **equals: Equality match condition on output fields
@@ -636,19 +690,13 @@ class BaseNode(Actor):
         Examples:
             node.goto(next_node)  # Unconditional
             node.goto(next_node, EdgeCondition(expr="$.outputs.score > 0.5"))
+            node.goto(next_node, lambda route: route.outputs["score"] > 0.5)
             node.goto(next_node, condition="$.outputs.score > 0.5")  # Shorthand
             node.goto(next_node, expr="$.outputs.score > 0.5", priority=10)
             node.goto(next_node, action="search")
-
-        Note:
-            Lambda/callable conditions are NOT supported for spec compatibility.
-            Use EdgeCondition or expr string instead.
-
-        Raises:
-            TypeError: If a callable is provided
         """
-        if not isinstance(next_node, BaseNode):
-            raise TypeError("next_node must be a BaseNode.")
+        if not _is_node_instance(next_node):
+            raise TypeError("next_node must be a Node.")
 
         normalized = self._normalize_edge_condition(
             condition=condition,
@@ -657,39 +705,7 @@ class BaseNode(Actor):
         )
         return Edge(from_node=self, condition=normalized or EdgeCondition(), to_node=next_node, priority=priority)
 
-
-class Node(BaseNode):
-    """
-    Node is still abstract, it does not implement the process method.
-    It provides a more convenient interface for user implementations,
-    while BaseNode focuses on the core execution logic and actor integration.
-    """
-
-    _process_no_arg: ClassVar[bool] = False
-
-    def __init_subclass__(cls, **kwargs):
-        """
-        if subclass process has not arg other than self, set self._process_no_arg = True
-        Note to AI: you should always write a process method that takes a Message argument.
-        This is just for lazy human programmers.
-        """
-        super().__init_subclass__(**kwargs)
-        process_impl = getattr(cls, "process", None)
-        is_abstract = getattr(process_impl, "__isabstractmethod__", False)
-        if process_impl and not is_abstract:
-            process_sig = inspect.signature(process_impl)
-            if len(process_sig.parameters) < 2:
-                cls._process_no_arg = True
-
-    def __init__(self, config: NodeConfig | None = None, **kwargs: Any) -> None:
-        super().__init__()
-        resolve_config_kwargs(self, config, kwargs)
-
-    def __repr__(self):
-        """Return a string representation of the node."""
-        return f"Node(name={self.__class__.__name__}, edges={self.edges})"
-
-    def forward_to(self, next_node: BaseNode) -> Node:
+    def forward_to(self, next_node: Node) -> Node:
         """Forward process results to ``next_node`` instead of returning them."""
 
         self.goto(next_node)
@@ -810,3 +826,6 @@ class Node(BaseNode):
         if message.metadata.get(_FORWARDED_METADATA_KEY):
             return None
         return result
+
+
+BaseNode = Node

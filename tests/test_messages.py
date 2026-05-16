@@ -1,7 +1,5 @@
 """Tests for core control messages."""
 
-import pytest
-
 from spark.core.actor_spec import ActorSpec
 from spark.core.identity import ActorId, ActorIncarnation, Envelope, SyndicateId
 from spark.core.messages import (
@@ -10,17 +8,18 @@ from spark.core.messages import (
     ActorExited,
     ActorExitRequest,
     ActorStatus,
-    SyndicateMessage,
+    CancellationRequest,
     ChildActorExited,
+    ChildActorRestarted,
     CommonStatusFields,
-    FederationAttendee,
     DeadLetter,
-    LoadedSourceInfo,
+    FederationAttendee,
     PendingMessage,
     PendingWakeup,
     StatusRequest,
-    SystemStatus,
+    SyndicateMessage,
     SystemShutdown,
+    SystemStatus,
     WakeupMessage,
     WakeupRequest,
     WatchMessage,
@@ -46,6 +45,14 @@ class TestActorExitRequest:
     def test_actor_exit_request_default_reason(self) -> None:
         msg = ActorExitRequest()
         assert msg.reason == "actor requested to exit"
+
+
+class TestCancellationRequest:
+    def test_cancellation_request_creation(self) -> None:
+        msg = CancellationRequest(correlation_id="corr-1", reason="client cancelled")
+
+        assert msg.correlation_id == "corr-1"
+        assert msg.reason == "client cancelled"
 
 
 class TestActorExited:
@@ -103,6 +110,28 @@ class TestChildActorExited:
         assert msg.child_incarnation is None
         assert msg.exit_code == 0
         assert msg.reason == "child actor exited"
+
+
+class TestChildActorRestarted:
+    def test_child_actor_restarted_creation(self) -> None:
+        child_id = ActorId(SyndicateId())
+        parent_id = ActorId(SyndicateId())
+        old_incarnation = ActorIncarnation(actor_id=child_id)
+        new_incarnation = old_incarnation.next_generation()
+
+        msg = ChildActorRestarted(
+            child_id=child_id,
+            parent_id=parent_id,
+            old_incarnation=old_incarnation,
+            new_incarnation=new_incarnation,
+            reason="restart test",
+        )
+
+        assert msg.child_id == child_id
+        assert msg.parent_id == parent_id
+        assert msg.old_incarnation == old_incarnation
+        assert msg.new_incarnation == new_incarnation
+        assert msg.reason == "restart test"
 
 
 class TestActorCreateMessages:
@@ -192,13 +221,11 @@ class TestStatusMessages:
             actor_class="MyActor",
             admin_address="spark://admin",
             parent_address="spark://parent",
-            source_hash="abc123",
         )
         assert msg.actor_address == "spark://actor1"
         assert msg.actor_class == "MyActor"
         assert msg.admin_address == "spark://admin"
         assert msg.parent_address == "spark://parent"
-        assert msg.source_hash == "abc123"
         assert msg.exiting is None
 
     def test_common_status_fields_defaults(self) -> None:
@@ -230,11 +257,6 @@ class TestStatusMessages:
         ca = FederationAttendee(address="addr", valid_until="2024-01-01")
         assert ca.address == "addr"
         assert ca.valid_until == "2024-01-01"
-
-    def test_loaded_source_info(self) -> None:
-        ls = LoadedSourceInfo(source_hash="abc", source_info="mymod.py")
-        assert ls.source_hash == "abc"
-        assert ls.source_info == "mymod.py"
 
 
 class TestDeadLetter:
@@ -278,8 +300,15 @@ class TestMessageInheritance:
         messages = [
             SystemShutdown(),
             ActorExitRequest(),
+            CancellationRequest("corr"),
             ActorExited(actor_id),
             ChildActorExited(actor_id, ActorId(SyndicateId())),
+            ChildActorRestarted(
+                actor_id,
+                ActorId(SyndicateId()),
+                ActorIncarnation(actor_id),
+                ActorIncarnation(actor_id, generation=1),
+            ),
             ActorCreateRequest(spec),
             ActorCreateResponse(actor_id),
             WakeupRequest(actor_id),

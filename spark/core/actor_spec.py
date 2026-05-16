@@ -4,6 +4,9 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+from .mailbox_policy import MailboxPolicy
+from .supervision import SupervisorStrategy
+
 ActorExecution = Literal["inprocess", "thread", "process", "system"]
 
 
@@ -17,3 +20,5 @@ class ActorSpec:
     requirements: Mapping[str, Any] = field(default_factory=dict)
     execution: ActorExecution = "inprocess"
     stateless: bool = False
+    supervisor_strategy: SupervisorStrategy = field(default_factory=SupervisorStrategy.stop)
+    mailbox_policy: MailboxPolicy = field(default_factory=MailboxPolicy.unbounded)

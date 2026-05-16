@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from spark import ActorAddress
-from spark.core.identity import ActorId, Envelope, SyndicateId
+from spark.core.identity import ActorId, ActorIncarnation, Envelope, SyndicateId
 from spark.transport.codec import CBOR2DependencyError, CBOR2EnvelopeCodec, CodecError, PickleEnvelopeCodec, _load_cbor2
 from spark.transport.websocket import WebSocketDependencyError, _load_websockets
 
@@ -65,6 +65,7 @@ class TestCBOR2EnvelopeCodec:
         codec = CBOR2EnvelopeCodec()
         target = ActorId(SyndicateId())
         sender = ActorId(target.syndicate_id)
+        target_incarnation = ActorIncarnation(target, generation=2)
         deadline = datetime(2026, 5, 9, 12, 30, 45, tzinfo=UTC)
         envelope = Envelope(
             target=target,
@@ -77,6 +78,7 @@ class TestCBOR2EnvelopeCodec:
                 "pair": ("left", 2),
                 "address": ActorAddress(sender),
             },
+            target_incarnation=target_incarnation,
             sender=sender,
             headers={"route": "remote", "nested": {"key": "value"}},
             deadline=deadline,

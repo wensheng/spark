@@ -4,15 +4,13 @@ from io import StringIO
 
 import pytest
 
-from spark import Actor, Syndicate, ActorAddress
-from spark.actor.base import _disable_actor_auto_start
+from spark import Actor, ActorAddress, Syndicate
 from spark.core.identity import ActorId, SyndicateId
 from spark.core.message import Message
 from spark.core.messages import (
     ActorStatus,
     CommonStatusFields,
     FederationAttendee,
-    LoadedSourceInfo,
     PendingMessage,
     PendingWakeup,
     StatusRequest,
@@ -44,7 +42,6 @@ class TestSystemStatusConstruction:
         assert ss.common.messages_sent == 0
         assert not ss.in_shutdown
         assert ss.capabilities == {}
-        assert ss.loaded_sources == ()
         assert ss.federation_attendees == ()
 
     def test_full_system_status(self) -> None:
@@ -74,10 +71,6 @@ class TestSystemStatusConstruction:
             notify_addresses=("spark://notify1",),
             global_actors={"worker1": "spark://worker1"},
             in_shutdown=False,
-            source_authority="spark://sa",
-            loaded_sources=(
-                LoadedSourceInfo("abc123", "mymod.py"),
-            ),
         )
         assert ss.actor_count == 5
         assert ss.uptime_seconds == 300.0
@@ -86,8 +79,6 @@ class TestSystemStatusConstruction:
         assert ss.federation_leader == "10.0.0.1:1900"
         assert len(ss.federation_attendees) == 1
         assert len(ss.dead_letter_addresses) == 1
-        assert len(ss.loaded_sources) == 1
-        assert ss.source_authority == "spark://sa"
         assert ss.global_actors == {"worker1": "spark://worker1"}
 
 
@@ -102,7 +93,6 @@ class TestActorStatusConstruction:
         assert ast.actor_class == "MyActor"
         assert ast.admin_address == "spark://admin"
         assert ast.parent_address is None
-        assert ast.source_hash is None
         assert ast.exiting is None
         assert ast.common.messages_sent == 0
 
@@ -120,11 +110,9 @@ class TestActorStatusConstruction:
                 ),
             ),
             parent_address="spark://parent",
-            source_hash="abc123",
             exiting="normal exit",
         )
         assert ast.parent_address == "spark://parent"
-        assert ast.source_hash == "abc123"
         assert ast.exiting == "normal exit"
         assert len(ast.common.child_actors) == 1
         assert len(ast.common.pending_wakeups) == 1
@@ -134,7 +122,7 @@ class TestSystemStatusE2E:
     @pytest.mark.asyncio
     async def test_status_request_to_system_returns_system_status(self) -> None:
         async with Syndicate("async-status-system") as system:
-            result = await system.ask(system.address, StatusRequest(), timeout=2.0)
+            result = await system.ask(StatusRequest(), system.address, timeout=2.0)
             assert isinstance(result, SystemStatus)
             assert result.syndicate_id == system.syndicate_id
             assert result.backend_type == "async-inprocess"
@@ -145,7 +133,7 @@ class TestSystemStatusE2E:
     async def test_status_request_to_actor_returns_actor_status(self) -> None:
         async with Syndicate("async-status-actor") as system:
             actor_addr = await system.create_actor(_EchoActor)
-            result = await system.ask(actor_addr, StatusRequest(), timeout=2.0)
+            result = await system.ask(StatusRequest(), actor_addr, timeout=2.0)
             assert isinstance(result, ActorStatus)
             assert result.actor_class == "_EchoActor"
             assert result.actor_address == str(actor_addr)
@@ -156,7 +144,7 @@ class TestSystemStatusE2E:
         async with Syndicate("async-status-count") as system:
             await system.create_actor(_EchoActor)
             await system.create_actor(_EchoActor)
-            result = await system.ask(system.address, StatusRequest(), timeout=2.0)
+            result = await system.ask(StatusRequest(), system.address, timeout=2.0)
             assert isinstance(result, SystemStatus)
             assert result.actor_count == 2
 
@@ -164,7 +152,7 @@ class TestSystemStatusE2E:
     async def test_system_status_shows_actors(self) -> None:
         async with Syndicate("async-status-child") as system:
             await system.create_actor(_EchoActor)
-            result = await system.ask(system.address, StatusRequest(), timeout=2.0)
+            result = await system.ask(StatusRequest(), system.address, timeout=2.0)
             assert isinstance(result, SystemStatus)
             assert result.actor_count >= 1
 
@@ -172,7 +160,7 @@ class TestSystemStatusE2E:
     async def test_system_status_records_dead_letters(self) -> None:
         async with Syndicate("async-status-dead") as system:
             bad_addr = ActorAddress(ActorId(syndicate_id=system.syndicate_id))
-            await system.tell(bad_addr, "orphan")
+            await system.tell("orphan", bad_addr)
 
             assert len(system.dead_letters) >= 1
             assert system.dead_letters[0].reason == "target not found"
@@ -187,7 +175,7 @@ class TestSystemStatusE2E:
             addr = await system.create_actor(_WakeupActor)
             system.backend.schedule_after(addr.actor_id, 60.0, "delayed")
 
-            result = await system.ask(system.address, StatusRequest(), timeout=2.0)
+            result = await system.ask(StatusRequest(), system.address, timeout=2.0)
             assert isinstance(result, SystemStatus)
             assert len(result.common.pending_wakeups) >= 1
 
@@ -212,9 +200,6 @@ class TestFormatStatus:
             ),
             capabilities={"backend": "inprocess"},
             dead_letter_addresses=(),
-            loaded_sources=(
-                LoadedSourceInfo("abc", "mod.py"),
-            ),
         )
         buf = StringIO()
         format_status(ss, tofd=buf)
@@ -227,9 +212,6 @@ class TestFormatStatus:
         assert "Primary Actors [1]" in output
         assert "Pending Messages [1]" in output
         assert "Messages Sent: 10" in output
-        assert "Loaded Sources [1]" in output
-        assert "abc" in output
-        assert "mod.py" in output
 
     def test_format_system_status_in_shutdown(self) -> None:
         ss = SystemStatus(
@@ -255,14 +237,12 @@ class TestFormatStatus:
                 messages_received=3,
             ),
             parent_address="spark://parent",
-            source_hash="abc123",
         )
         buf = StringIO()
         format_status(ast, tofd=buf)
         output = buf.getvalue()
         assert "Status of MyActor Actor" in output
         assert "spark://actor1" in output
-        assert "Source Hash: abc123" in output
         assert "Administrator: spark://admin" in output
         assert "Parent  Actor: spark://parent" in output
         assert "Child Actors [2]" in output

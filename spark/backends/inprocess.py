@@ -46,7 +46,7 @@ class InProcessBackend:
         self.kernel.run_until_idle()
         return address
 
-    def tell(self, target: ActorAddress, message: Any) -> None:
+    def tell(self, message: Any, target: ActorAddress) -> None:
         """Send a message and drain runnable work."""
         self.kernel.tell(target, message, sender=self.inbox.actor_id)
         self.kernel.run_until_idle()
@@ -63,7 +63,7 @@ class InProcessBackend:
         """Install or clear the drain logger on the system's external inbox."""
         self.inbox._drain_logger = logger
 
-    def ask(self, target: ActorAddress, message: Any, timeout: float | None = 5.0) -> Any:
+    def ask(self, message: Any, target: ActorAddress, timeout: float | None = 5.0) -> Any:
         """Ask an actor for a reply."""
         return self.kernel.ask(target, message, timeout=timeout)
 

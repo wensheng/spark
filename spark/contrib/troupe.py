@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import inspect
+from dataclasses import dataclass
 from typing import Any
 
 from ..actor.address import ActorAddress
@@ -35,6 +36,24 @@ class UpdateTroupeSettings:
         self.worker_execution = worker_execution
 
 
+@dataclass(frozen=True, slots=True)
+class GetTroupeStatus:
+    """Request structured actor-pool status."""
+
+
+@dataclass(frozen=True, slots=True)
+class TroupeStatus:
+    """Structured actor-pool status."""
+
+    idle_count: int
+    max_count: int
+    worker_execution: ActorExecution
+    worker_count: int
+    idle_worker_count: int
+    pending_count: int
+    max_pending: int | None = None
+
+
 class _TroupeMemberReady:
     __slots__ = ("ident_done",)
 
@@ -59,11 +78,13 @@ class _TroupeManager:
         idle_count: int,
         max_count: int,
         worker_execution: ActorExecution,
+        max_pending: int | None = None,
     ) -> None:
         self.mgr_addr = mgr_addr
         self.idle_count = idle_count
         self.max_count = max_count
         self.worker_execution = worker_execution
+        self.max_pending = max_pending
         self.workers: list[ActorAddress] = []
         self.idle_workers: list[ActorAddress] = []
         self.extra_workers: list[ActorAddress] = []
@@ -104,6 +125,8 @@ class _TroupeManager:
             return [(worker, work)]
         if len(self.workers) < self.max_count:
             return [(None, work)]
+        if self.max_pending is not None and len(self.pending_work) >= self.max_pending:
+            raise RuntimeError("actor pool pending queue full")
         self.pending_work.append(work)
         return []
 
@@ -139,6 +162,17 @@ class _TroupeManager:
             f"Pending={len(self.pending_work)}"
         )
 
+    def structured_status(self) -> TroupeStatus:
+        return TroupeStatus(
+            idle_count=self.idle_count,
+            max_count=self.max_count,
+            worker_execution=self.worker_execution,
+            worker_count=len(self.workers),
+            idle_worker_count=len(self.idle_workers),
+            pending_count=len(self.pending_work),
+            max_pending=self.max_pending,
+        )
+
 
 class Troupe(Actor):
     """Async native pool/router base class.
@@ -151,6 +185,7 @@ class Troupe(Actor):
     troupe_max_count: int = 10
     troupe_idle_count: int = 2
     troupe_worker_execution: ActorExecution = "inprocess"
+    troupe_max_pending: int | None = None
 
     def __init__(
         self,
@@ -158,11 +193,13 @@ class Troupe(Actor):
         max_count: int | None = None,
         idle_count: int | None = None,
         worker_execution: ActorExecution | None = None,
+        max_pending: int | None = None,
     ) -> None:
         super().__init__()
         self._cfg_max_count = max_count if max_count is not None else self.troupe_max_count
         self._cfg_idle_count = idle_count if idle_count is not None else self.troupe_idle_count
         self._cfg_worker_execution = worker_execution if worker_execution is not None else self.troupe_worker_execution
+        self._cfg_max_pending = max_pending if max_pending is not None else self.troupe_max_pending
         self._troupe_mgr: _TroupeManager | None = None
         self._is_worker_for: ActorAddress | None = None
         self._work_ident = -1
@@ -220,6 +257,7 @@ class Troupe(Actor):
                 self._cfg_idle_count,
                 self._cfg_max_count,
                 self._cfg_worker_execution,
+                self._cfg_max_pending,
             )
 
         sender = ActorAddress(envelope.sender) if envelope.sender is not None else None
@@ -251,6 +289,10 @@ class Troupe(Actor):
                     ),
                     sender,
                 )
+            return
+        elif isinstance(payload, GetTroupeStatus):
+            if sender is not None:
+                await self.tell(self._troupe_mgr.structured_status(), sender)
             return
         elif isinstance(payload, str) and await self._handle_command(payload, sender):
             return
@@ -286,3 +328,6 @@ class Troupe(Actor):
                 await self.tell(f"Set troupe idle_count to {self._troupe_mgr.idle_count}", sender)
             return True
         return False
+
+
+ActorPool = Troupe

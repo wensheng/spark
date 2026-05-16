@@ -5,8 +5,11 @@ from __future__ import annotations
 import argparse
 import asyncio
 import contextlib
+import hashlib
+import hmac
 import importlib
 import json
+import os
 import struct
 import uuid
 from collections.abc import Awaitable, Callable, Sequence
@@ -69,6 +72,7 @@ class WebSocketTransportFrame:
     payload: bytes = b""
     frame_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     reason: str | None = None
+    auth: str | None = None
 
 
 def encode_websocket_frame(frame: WebSocketTransportFrame) -> bytes:
@@ -80,6 +84,7 @@ def encode_websocket_frame(frame: WebSocketTransportFrame) -> bytes:
         "target": None if frame.target_syndicate_id is None else frame.target_syndicate_id.uuid,
         "frame_id": frame.frame_id,
         "reason": frame.reason,
+        "auth": frame.auth,
     }
     header = json.dumps(metadata, separators=(",", ":"), sort_keys=True).encode("utf-8")
     size = len(_FRAME_MAGIC) + _HEADER_SIZE.size + len(header) + len(frame.payload)
@@ -125,10 +130,13 @@ def decode_websocket_frame(message: object) -> WebSocketTransportFrame:
     target = _syndicate_id_from_metadata(metadata, "target", required=False)
     frame_id = metadata.get("frame_id")
     reason = metadata.get("reason")
+    auth = metadata.get("auth")
     if not isinstance(frame_id, str) or not frame_id:
         raise CodecError("websocket frame requires a frame_id")
     if reason is not None and not isinstance(reason, str):
         raise CodecError("websocket frame reason must be a string")
+    if auth is not None and not isinstance(auth, str):
+        raise CodecError("websocket frame auth must be a string")
     if kind == "envelope" and target is None:
         raise CodecError("websocket envelope frame requires a target")
     return WebSocketTransportFrame(
@@ -138,6 +146,7 @@ def decode_websocket_frame(message: object) -> WebSocketTransportFrame:
         payload=data[payload_offset:],
         frame_id=frame_id,
         reason=reason,
+        auth=auth,
     )
 
 
@@ -166,6 +175,16 @@ def _is_websocket_send_failure(result: DeliveryResult) -> bool:
     return (
         not result.success and result.reason is not None and result.reason.startswith("remote websocket send failed:")
     )
+
+
+def _sign_relay_registration(secret: str | bytes, syndicate_id: SyndicateId, frame_id: str) -> str:
+    key = secret.encode("utf-8") if isinstance(secret, str) else secret
+    payload = f"spark-relay-register:{syndicate_id.uuid}:{frame_id}".encode()
+    return hmac.new(key, payload, hashlib.sha256).hexdigest()
+
+
+def _is_loopback_host(host: str) -> bool:
+    return host in {"localhost", "127.0.0.1", "::1"}
 
 
 @dataclass(slots=True, eq=False)
@@ -202,6 +221,7 @@ class AsyncWebSocketTransport:
         self._server: Any | None = None
         self._closed = False
         self._relay_uri: str | None = None
+        self._relay_secret: str | bytes | None = None
         self._relay_connection: _WebSocketConnection | None = None
         self._relay_pending: dict[str, asyncio.Future[DeliveryResult]] = {}
         self._relay_ack_timeout = relay_ack_timeout
@@ -228,9 +248,10 @@ class AsyncWebSocketTransport:
         """Add or replace a direct websocket URI route."""
         self._routes[syndicate_id] = _validate_websocket_uri(uri)
 
-    async def connect_relay(self, uri: str) -> None:
+    async def connect_relay(self, uri: str, *, secret: str | bytes | None = None) -> None:
         """Connect this system to a websocket relay."""
         self._relay_uri = _validate_websocket_uri(uri)
+        self._relay_secret = secret
         await self._ensure_relay_connection()
 
     async def send(self, envelope: Envelope) -> DeliveryResult:
@@ -347,11 +368,29 @@ class AsyncWebSocketTransport:
             websocket=websocket, peer_syndicate_id=peer_syndicate_id, uri=uri, relay=relay
         )
         connection.reader_task = self._create_reader_task(connection)
-        result = await self._send_frame(
-            connection,
-            WebSocketTransportFrame(kind="register", source_syndicate_id=self.syndicate_id),
-            drop_on_error=True,
-        )
+        register_frame = WebSocketTransportFrame(kind="register", source_syndicate_id=self.syndicate_id)
+        if relay and self._relay_secret is not None:
+            register_frame = WebSocketTransportFrame(
+                kind="register",
+                source_syndicate_id=self.syndicate_id,
+                frame_id=register_frame.frame_id,
+                auth=_sign_relay_registration(self._relay_secret, self.syndicate_id, register_frame.frame_id),
+            )
+        if relay:
+            loop = asyncio.get_running_loop()
+            pending = loop.create_future()
+            self._relay_pending[register_frame.frame_id] = pending
+            result = await self._send_frame(connection, register_frame, drop_on_error=True)
+            if not result.success:
+                self._relay_pending.pop(register_frame.frame_id, None)
+                raise OSError(result.reason or "websocket relay registration failed")
+            try:
+                result = await asyncio.wait_for(pending, timeout=self._relay_ack_timeout)
+            except TimeoutError as exc:
+                self._relay_pending.pop(register_frame.frame_id, None)
+                raise OSError("websocket relay registration timed out") from exc
+        else:
+            result = await self._send_frame(connection, register_frame, drop_on_error=True)
         if not result.success:
             raise OSError(result.reason or "websocket registration failed")
         return connection
@@ -516,9 +555,10 @@ class _RelayConnection:
 class WebSocketRelay:
     """Small websocket relay that forwards Spark frames by target SyndicateId."""
 
-    def __init__(self, host: str = "127.0.0.1", port: int = 0) -> None:
+    def __init__(self, host: str = "127.0.0.1", port: int = 0, *, auth_secret: str | bytes | None = None) -> None:
         self._host = host
         self._port = port
+        self._auth_secret = auth_secret
         self._server: Any | None = None
         self._connections: dict[SyndicateId, _RelayConnection] = {}
         self._clients: set[_RelayConnection] = set()
@@ -571,7 +611,8 @@ class WebSocketRelay:
                 except CodecError:
                     break
                 if frame.kind == "register":
-                    await self._register(frame.source_syndicate_id, client)
+                    if not await self._register(frame.source_syndicate_id, client, frame):
+                        break
                 elif frame.kind == "envelope":
                     await self._forward(frame, client, cast(bytes, raw))
         except api.connection_closed:
@@ -582,12 +623,24 @@ class WebSocketRelay:
             await self._unregister(client)
             self._clients.discard(client)
 
-    async def _register(self, syndicate_id: SyndicateId, client: _RelayConnection) -> None:
+    async def _register(
+        self,
+        syndicate_id: SyndicateId,
+        client: _RelayConnection,
+        frame: WebSocketTransportFrame,
+    ) -> bool:
+        if self._auth_secret is not None:
+            expected = _sign_relay_registration(self._auth_secret, syndicate_id, frame.frame_id)
+            if frame.auth is None or not hmac.compare_digest(expected, frame.auth):
+                await self._send_relay_result(client, frame, success=False, reason="relay authentication failed")
+                return False
         prior = self._connections.get(syndicate_id)
         if prior is not None and prior is not client:
             await self._close_client(prior)
         client.syndicate_id = syndicate_id
         self._connections[syndicate_id] = client
+        await self._send_relay_result(client, frame, success=True)
+        return True
 
     async def _forward(self, frame: WebSocketTransportFrame, source: _RelayConnection, raw: bytes) -> None:
         target_syndicate_id = frame.target_syndicate_id
@@ -635,9 +688,14 @@ class WebSocketRelay:
             await client.websocket.close()
 
 
-async def run_websocket_relay(host: str = "127.0.0.1", port: int = 0) -> None:
+async def run_websocket_relay(
+    host: str = "127.0.0.1",
+    port: int = 0,
+    *,
+    auth_secret: str | bytes | None = None,
+) -> None:
     """Run a websocket relay until cancelled."""
-    relay = WebSocketRelay(host=host, port=port)
+    relay = WebSocketRelay(host=host, port=port, auth_secret=auth_secret)
     await relay.start()
     assert relay.uri is not None
     print(f"spark websocket relay listening on {relay.uri}", flush=True)
@@ -652,9 +710,24 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run a Spark websocket relay.")
     parser.add_argument("--host", default="127.0.0.1", help="Host/interface to bind.")
     parser.add_argument("--port", default=0, type=int, help="Port to bind.")
+    parser.add_argument(
+        "--auth-secret-env",
+        help="Environment variable containing the shared relay registration secret.",
+    )
+    parser.add_argument(
+        "--allow-unauthenticated-local",
+        action="store_true",
+        help="Allow unauthenticated relay registration for loopback-only local demos.",
+    )
     args = parser.parse_args(argv)
+    auth_secret = os.environ.get(args.auth_secret_env) if args.auth_secret_env else None
+    if auth_secret is None:
+        if not args.allow_unauthenticated_local:
+            parser.error("set --auth-secret-env or pass --allow-unauthenticated-local for a loopback demo")
+        if not _is_loopback_host(args.host):
+            parser.error("--allow-unauthenticated-local is only valid with a loopback host")
     try:
-        asyncio.run(run_websocket_relay(host=args.host, port=args.port))
+        asyncio.run(run_websocket_relay(host=args.host, port=args.port, auth_secret=auth_secret))
     except KeyboardInterrupt:
         return 0
     return 0

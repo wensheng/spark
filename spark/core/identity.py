@@ -98,6 +98,7 @@ class Envelope:
 
     target: ActorId
     payload: Any
+    target_incarnation: ActorIncarnation | None = None
     message_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     headers: Mapping[str, Any] = field(default_factory=FrozenHeaders)
     sender: ActorId | None = None
@@ -108,6 +109,9 @@ class Envelope:
     def __post_init__(self) -> None:
         """Normalize immutable metadata defaults."""
         object.__setattr__(self, "headers", FrozenHeaders(self.headers))
+        traceparent = self.headers.get("traceparent")
+        if isinstance(traceparent, str):
+            object.__setattr__(self, "trace_id", traceparent)
         if self.correlation_id is None:
             object.__setattr__(self, "correlation_id", self.message_id)
         if self.deadline is not None and self.deadline.tzinfo is None:
@@ -128,6 +132,7 @@ class Envelope:
             sender=self.sender,
             target=self.target,
             payload=self.payload,
+            target_incarnation=self.target_incarnation,
             headers=self.headers,
             deadline=datetime.now(tz=UTC) + timeout,
             correlation_id=self.correlation_id,
@@ -141,6 +146,7 @@ class Envelope:
             sender=sender,
             target=self.target,
             payload=self.payload,
+            target_incarnation=self.target_incarnation,
             headers=self.headers,
             deadline=self.deadline,
             correlation_id=self.correlation_id,

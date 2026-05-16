@@ -39,7 +39,7 @@ class TestBackendSetWatch:
         r, _ = pipe_pair
         async with Syndicate("async-watch-state") as system:
             actor = await system.create_actor(WatchSetterActor)
-            await system.tell(actor, ([r], []))
+            await system.tell(([r], []), actor)
             await asyncio.sleep(0)
 
             backend = system.backend
@@ -52,9 +52,9 @@ class TestBackendSetWatch:
         r, w = pipe_pair
         async with Syndicate("async-watch-replace") as system:
             actor = await system.create_actor(WatchSetterActor)
-            await system.tell(actor, ([r], []))
+            await system.tell(([r], []), actor)
             await asyncio.sleep(0)
-            await system.tell(actor, ([w], []))
+            await system.tell(([w], []), actor)
             await asyncio.sleep(0)
 
             backend = system.backend
@@ -67,9 +67,9 @@ class TestBackendSetWatch:
         r, _ = pipe_pair
         async with Syndicate("async-watch-clear") as system:
             actor = await system.create_actor(WatchSetterActor)
-            await system.tell(actor, ([r], []))
+            await system.tell(([r], []), actor)
             await asyncio.sleep(0)
-            await system.tell(actor, ([], []))
+            await system.tell(([], []), actor)
             await asyncio.sleep(0)
 
             backend = system.backend
@@ -81,7 +81,7 @@ class TestBackendSetWatch:
         r, _ = pipe_pair
         async with Syndicate("async-watch-collision") as system:
             actor1 = await system.create_actor(WatchSetterActor)
-            await system.tell(actor1, ([r], []))
+            await system.tell(([r], []), actor1)
             await asyncio.sleep(0)
 
             actor2 = await system.create_actor(WatchSetterActor)
@@ -94,7 +94,7 @@ class TestBackendSetWatch:
         r, _ = pipe_pair
         async with Syndicate("async-watch-stop") as system:
             actor = await system.create_actor(WatchSetterActor)
-            await system.tell(actor, ([r], []))
+            await system.tell(([r], []), actor)
             await asyncio.sleep(0)
             assert r in system.backend._fd_owner
 

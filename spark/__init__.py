@@ -8,11 +8,9 @@ Spark provides a clean, intuitive implementation of the actor model with:
 - Excellent performance and observability
 """
 
-__version__ = "0.1.0"
+__version__ = "0.4.0"
 __author__ = "Wensheng Wang"
 __email__ = "wenshengwang@gmail.com"
-
-from spark.node.base import Node
 
 from .actor import Actor, ActorAddress
 from .core.actor_spec import ActorExecution, ActorSpec
@@ -26,14 +24,17 @@ from .core.exceptions import (
     SparkException,
 )
 from .core.identity import ActorId, ActorIncarnation, Envelope, SyndicateId
+from .core.mailbox_policy import MailboxOverflow, MailboxPolicy
 from .core.message import Message
 from .core.messages import (
+    ActorExited,
     ActorExitRequest,
     ActorStatus,
+    CancellationRequest,
     ChildActorExited,
+    ChildActorRestarted,
     CommonStatusFields,
     FederationAttendee,
-    LoadedSourceInfo,
     PendingMessage,
     PendingWakeup,
     StatusRequest,
@@ -42,7 +43,7 @@ from .core.messages import (
     WatchMessage,
 )
 from .core.status import format_status
-from .graph import Graph
+from .core.supervision import SupervisionDecision, SupervisorStrategy
 from .node.runcommand import (
     Command,
     CommandAbort,
@@ -53,16 +54,32 @@ from .node.runcommand import (
     CommandStarted,
     RunCommand,
 )
+from .persistence import (
+    DurableTimer,
+    InMemoryJournal,
+    Journal,
+    JournalEvent,
+    JournalSnapshot,
+    PersistentActor,
+    SQLiteJournal,
+)
+from .runtime.events import RuntimeEvent
 from .services import (
     ArtifactRef,
     DiagnosticsService,
+    FederationAck,
+    FederationAuthError,
+    FederationError,
+    FederationManager,
     LocalFirstPlacementStrategy,
     LocalNameRegistry,
     PackageArtifactProvider,
+    RemoteActorSpec,
+    RemoteSpawnError,
     StaticMembershipProvider,
     SystemDescriptor,
 )
-from .system import Syndicate, get_existing_global_syndicate, get_global_syndicate, shutdown_global_syndicate
+from .system.syndicate import Syndicate, get_existing_global_syndicate, get_global_syndicate, shutdown_global_syndicate
 
 __all__ = [
     "Actor",
@@ -75,6 +92,10 @@ __all__ = [
     "Message",
     "ActorSpec",
     "ActorExecution",
+    "MailboxPolicy",
+    "MailboxOverflow",
+    "SupervisorStrategy",
+    "SupervisionDecision",
     "SparkException",
     "ActorNotFound",
     "ActorAlreadyExists",
@@ -83,11 +104,13 @@ __all__ = [
     "ActorTimeout",
     "MessageDeliveryError",
     "ActorStatus",
+    "ActorExited",
     "ChildActorExited",
+    "ChildActorRestarted",
+    "CancellationRequest",
     "ActorExitRequest",
     "CommonStatusFields",
     "FederationAttendee",
-    "LoadedSourceInfo",
     "PendingMessage",
     "PendingWakeup",
     "StatusRequest",
@@ -102,17 +125,29 @@ __all__ = [
     "CommandResult",
     "CommandStarted",
     "RunCommand",
+    "RuntimeEvent",
+    "PersistentActor",
+    "DurableTimer",
+    "InMemoryJournal",
+    "Journal",
+    "JournalEvent",
+    "JournalSnapshot",
+    "SQLiteJournal",
     "format_status",
     "get_existing_global_syndicate",
     "get_global_syndicate",
     "shutdown_global_syndicate",
     "ArtifactRef",
     "DiagnosticsService",
+    "FederationAck",
+    "FederationAuthError",
+    "FederationError",
+    "FederationManager",
     "LocalFirstPlacementStrategy",
     "LocalNameRegistry",
     "PackageArtifactProvider",
+    "RemoteActorSpec",
+    "RemoteSpawnError",
     "StaticMembershipProvider",
     "SystemDescriptor",
-    "Node",
-    "Graph",
 ]

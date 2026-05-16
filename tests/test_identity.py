@@ -99,18 +99,24 @@ class TestEnvelope:
         sys_id = SyndicateId()
         sender_id = ActorId(syndicate_id=sys_id)
         target_id = ActorId(syndicate_id=sys_id)
+        target_incarnation = ActorIncarnation(target_id, generation=3)
 
-        envelope = Envelope(target=target_id, payload="test").with_sender(sender_id)
+        envelope = Envelope(target=target_id, payload="test", target_incarnation=target_incarnation).with_sender(
+            sender_id
+        )
 
         assert envelope.sender == sender_id
         assert envelope.target == target_id
+        assert envelope.target_incarnation == target_incarnation
 
     def test_envelope_deadline(self) -> None:
         actor_id = ActorId(syndicate_id=SyndicateId())
+        target_incarnation = ActorIncarnation(actor_id, generation=2)
         deadline = datetime.now(tz=UTC) + timedelta(seconds=5)
-        envelope = Envelope(target=actor_id, payload="test", deadline=deadline)
+        envelope = Envelope(target=actor_id, payload="test", target_incarnation=target_incarnation, deadline=deadline)
 
         assert envelope.deadline == deadline
+        assert envelope.target_incarnation == target_incarnation
         assert not envelope.is_expired
 
     def test_envelope_rejects_naive_deadline(self) -> None:

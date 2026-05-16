@@ -7,6 +7,7 @@ from abc import ABC, ABCMeta, abstractmethod
 from collections.abc import Awaitable, Callable, Iterable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
+from datetime import datetime
 from typing import Any, Protocol
 
 from ..core.actor_spec import ActorSpec
@@ -16,6 +17,7 @@ from ..core.message import Message
 from .address import ActorAddress
 
 _auto_start_disabled_depth: ContextVar[int] = ContextVar("spark_actor_auto_start_disabled_depth", default=0)
+_current_envelope: ContextVar[Envelope | None] = ContextVar("spark_current_envelope", default=None)
 _RUN_REPLY_METADATA_KEY = "__spark_run_reply__"
 
 
@@ -34,12 +36,30 @@ class ActorContext(Protocol):
 
     actor_id: ActorId
     address: ActorAddress
+    syndicate_address: ActorAddress
     parent: ActorAddress | None
 
-    async def tell(self, target: ActorAddress, message: Any) -> None:
+    async def tell(
+        self,
+        message: Any,
+        target: ActorAddress,
+        *,
+        ttl: float | None = None,
+        deadline: datetime | None = None,
+        headers: dict[str, Any] | None = None,
+        trace_id: str | None = None,
+    ) -> None:
         """Send a fire-and-forget message to another actor."""
 
-    async def ask(self, target: ActorAddress, message: Any, timeout: float | None = None) -> Any:
+    async def ask(
+        self,
+        message: Any,
+        target: ActorAddress,
+        timeout: float | None = None,
+        *,
+        ttl: float | None = None,
+        deadline: datetime | None = None,
+    ) -> Any:
         """Send a message and await a reply."""
 
     async def create_actor(self, actor_class: type[Actor], *args: Any, **kwargs: Any) -> ActorAddress:
@@ -48,11 +68,30 @@ class ActorContext(Protocol):
     async def create_actor_from_spec(self, spec: ActorSpec) -> ActorAddress:
         """Create a child actor from an explicit actor specification."""
 
-    def schedule_after(self, delay: float, payload: Any = None) -> None:
+    def schedule_after(
+        self,
+        delay: float,
+        payload: Any = None,
+        *,
+        durable: bool = False,
+        timer_id: str | None = None,
+    ) -> None:
         """Schedule a wakeup message for this actor."""
+
+    async def persist_event(self, event: Any) -> None:
+        """Persist an event for a persistent actor."""
+
+    async def save_snapshot(self, state: Any, *, sequence: int | None = None) -> None:
+        """Persist a snapshot for a persistent actor."""
 
     async def watch(self, *, read: Iterable[int] = (), write: Iterable[int] = ()) -> None:
         """Replace this actor's fd watch list."""
+
+    async def link(self, target: ActorAddress) -> None:
+        """Link this actor to another actor for bidirectional fate sharing."""
+
+    async def monitor(self, target: ActorAddress) -> None:
+        """Monitor another actor for one-way exit notification."""
 
     async def stop(self) -> None:
         """Stop this actor."""
@@ -85,7 +124,7 @@ class Actor(ABC, metaclass=ActorMeta):
         """Register direct actor instances with the process-wide Syndicate."""
         if self._context is not None:
             return
-        from ..system import _start_global_actor
+        from ..system.syndicate import _start_global_actor
 
         _start_global_actor(self)
 
@@ -141,24 +180,59 @@ class Actor(ABC, metaclass=ActorMeta):
             raise ActorNotStartedError(self.__class__.__name__)
         return self._context
 
-    async def tell(self, message: Any, target: ActorAddress | None = None) -> None:
+    async def tell(
+        self,
+        message: Any,
+        target: ActorAddress | None = None,
+        *,
+        ttl: float | None = None,
+        deadline: datetime | None = None,
+        headers: dict[str, Any] | None = None,
+        trace_id: str | None = None,
+    ) -> None:
         """Send a fire-and-forget message."""
         context = self._require_context()
+        current = _current_envelope.get()
+        if headers is None and current is not None:
+            headers = dict(current.headers)
+        if trace_id is None and current is not None:
+            trace_id = current.trace_id
         if target is None:
-            from ..system import _global_tell
-
-            await _global_tell(message)
+            if ttl is None and deadline is None and headers is None and trace_id is None:
+                await context.tell(message, context.syndicate_address)
+            else:
+                await context.tell(
+                    message,
+                    context.syndicate_address,
+                    ttl=ttl,
+                    deadline=deadline,
+                    headers=headers,
+                    trace_id=trace_id,
+                )
             return
-        await context.tell(target, message)
+        if ttl is None and deadline is None and headers is None and trace_id is None:
+            await context.tell(message, target)
+        else:
+            await context.tell(message, target, ttl=ttl, deadline=deadline, headers=headers, trace_id=trace_id)
 
-    async def ask(self, message: Any, target: ActorAddress | None = None, timeout: float | None = None) -> Any:
+    async def ask(
+        self,
+        message: Any,
+        target: ActorAddress | None = None,
+        timeout: float | None = None,
+        *,
+        ttl: float | None = None,
+        deadline: datetime | None = None,
+    ) -> Any:
         """Send a message and await a reply."""
         context = self._require_context()
         if target is None:
-            from ..system import _global_ask
-
-            return await _global_ask(message, timeout)
-        return await context.ask(target, message, timeout)
+            if ttl is None and deadline is None:
+                return await context.ask(message, context.syndicate_address, timeout)
+            return await context.ask(message, context.syndicate_address, timeout, ttl=ttl, deadline=deadline)
+        if ttl is None and deadline is None:
+            return await context.ask(message, target, timeout)
+        return await context.ask(message, target, timeout, ttl=ttl, deadline=deadline)
 
     async def create_actor(self, actor_class: type[Actor], *args: Any, **kwargs: Any) -> ActorAddress:
         """Create a child actor."""
@@ -168,9 +242,24 @@ class Actor(ABC, metaclass=ActorMeta):
         """Create a child actor from an explicit actor specification."""
         return await self._require_context().create_actor_from_spec(spec)
 
-    def schedule_after(self, delay: float, payload: Any = None) -> None:
+    def schedule_after(
+        self,
+        delay: float,
+        payload: Any = None,
+        *,
+        durable: bool = False,
+        timer_id: str | None = None,
+    ) -> None:
         """Schedule a wakeup message after ``delay`` seconds."""
-        self._require_context().schedule_after(delay, payload)
+        self._require_context().schedule_after(delay, payload, durable=durable, timer_id=timer_id)
+
+    async def persist_event(self, event: Any) -> None:
+        """Persist an event for this actor when the runtime has a journal."""
+        await self._require_context().persist_event(event)
+
+    async def save_snapshot(self, state: Any, *, sequence: int | None = None) -> None:
+        """Persist a snapshot for this actor when the runtime has a journal."""
+        await self._require_context().save_snapshot(state, sequence=sequence)
 
     async def watch(
         self,
@@ -180,6 +269,14 @@ class Actor(ABC, metaclass=ActorMeta):
     ) -> None:
         """Replace this actor's fd watch list."""
         await self._require_context().watch(read=tuple(read), write=tuple(write))
+
+    async def link(self, target: ActorAddress) -> None:
+        """Link this actor to another actor for bidirectional fate sharing."""
+        await self._require_context().link(target)
+
+    async def monitor(self, target: ActorAddress) -> None:
+        """Monitor another actor for one-way exit notification."""
+        await self._require_context().monitor(target)
 
     async def stop(self) -> None:
         """Stop this actor."""
@@ -202,11 +299,15 @@ class Actor(ABC, metaclass=ActorMeta):
 
     async def receive_envelope(self, envelope: Envelope) -> None:
         """Normalize an envelope and dispatch it to ``process``."""
-        message = self._message_from_envelope(envelope)
-        result = await self._process(message)
-        force_reply = bool(message.metadata.get(_RUN_REPLY_METADATA_KEY))
-        if (result is not None or force_reply) and message.sender is not None:
-            await self.tell(result, message.sender)
+        token = _current_envelope.set(envelope)
+        try:
+            message = self._message_from_envelope(envelope)
+            result = await self._process(message)
+            force_reply = bool(message.metadata.get(_RUN_REPLY_METADATA_KEY))
+            if (result is not None or force_reply) and message.sender is not None:
+                await self.tell(result, message.sender)
+        finally:
+            _current_envelope.reset(token)
 
     async def run(self, payload: Any = None, timeout: float | None = 5.0) -> Any:
         """
@@ -219,7 +320,7 @@ class Actor(ABC, metaclass=ActorMeta):
         self.activate()
         try:
             message = Message(content=payload, metadata={_RUN_REPLY_METADATA_KEY: True})
-            from ..system import get_existing_global_syndicate
+            from ..system.syndicate import get_existing_global_syndicate
 
             syn = get_existing_global_syndicate()
             if syn is None or not syn.active or syn.syndicate_id != context.address.actor_id.syndicate_id:
@@ -227,7 +328,7 @@ class Actor(ABC, metaclass=ActorMeta):
                     "direct actor is bound to a stopped global Syndicate; "
                     "create a new actor or use an explicit Syndicate"
                 )
-            return await syn.ask(context.address, message, timeout=timeout)
+            return await syn.ask(message, context.address, timeout=timeout)
         finally:
             if not was_active and self.active:
                 self.deactivate()

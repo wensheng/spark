@@ -26,25 +26,37 @@ class RecordingActor(Actor):
 class RecordingContext:
     actor_id: ActorId
     address: ActorAddress
+    syndicate_address: ActorAddress
     parent: ActorAddress | None = None
     sent: list[tuple[ActorAddress, Any]] = field(default_factory=list)
     wakeups: list[tuple[float, Any]] = field(default_factory=list)
 
-    async def tell(self, target: ActorAddress, message: Any) -> None:
+    async def tell(self, message: Any, target: ActorAddress) -> None:
         self.sent.append((target, message))
 
-    async def ask(self, target: ActorAddress, message: Any, timeout: float | None = None) -> Any:
+    async def ask(self, message: Any, target: ActorAddress, timeout: float | None = None) -> Any:
         self.sent.append((target, message))
         return {"target": target, "message": message, "timeout": timeout}
 
-    async def create_actor(
-        self, actor_class: type[Actor], *args: Any, **kwargs: Any
-    ) -> ActorAddress:
+    async def create_actor(self, actor_class: type[Actor], *args: Any, **kwargs: Any) -> ActorAddress:
         child_id = ActorId(syndicate_id=self.actor_id.syndicate_id)
         return ActorAddress(child_id)
 
-    def schedule_after(self, timeout: float, payload: Any = None) -> None:
+    def schedule_after(
+        self,
+        timeout: float,
+        payload: Any = None,
+        *,
+        durable: bool = False,
+        timer_id: str | None = None,
+    ) -> None:
         self.wakeups.append((timeout, payload))
+
+    async def persist_event(self, event: Any) -> None:
+        return None
+
+    async def save_snapshot(self, state: Any, *, sequence: int | None = None) -> None:
+        return None
 
     async def stop(self) -> None:
         return None
@@ -104,7 +116,8 @@ class TestActorBase:
 
     def test_context_binding_exposes_runtime_properties(self) -> None:
         actor_id = ActorId(SyndicateId())
-        context = RecordingContext(actor_id=actor_id, address=ActorAddress(actor_id))
+        address = ActorAddress(actor_id)
+        context = RecordingContext(actor_id=actor_id, address=address, syndicate_address=address)
         actor = RecordingActor()
 
         actor._bind_context(context)
@@ -115,7 +128,8 @@ class TestActorBase:
 
     def test_context_binding_can_only_happen_once(self) -> None:
         actor_id = ActorId(SyndicateId())
-        context = RecordingContext(actor_id=actor_id, address=ActorAddress(actor_id))
+        address = ActorAddress(actor_id)
+        context = RecordingContext(actor_id=actor_id, address=address, syndicate_address=address)
         actor = RecordingActor()
 
         actor._bind_context(context)
@@ -126,7 +140,8 @@ class TestActorBase:
     @pytest.mark.asyncio
     async def test_runtime_methods_delegate_to_context(self) -> None:
         actor_id = ActorId(SyndicateId())
-        context = RecordingContext(actor_id=actor_id, address=ActorAddress(actor_id))
+        address = ActorAddress(actor_id)
+        context = RecordingContext(actor_id=actor_id, address=address, syndicate_address=address)
         target = ActorAddress(ActorId(SyndicateId()))
         actor = RecordingActor()
         actor._bind_context(context)

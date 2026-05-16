@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import Any, Protocol, cast
 
 from ..actor.address import ActorAddress
-from ..core.identity import ActorId, Envelope, FrozenHeaders, SyndicateId
+from ..core.identity import ActorId, ActorIncarnation, Envelope, FrozenHeaders, SyndicateId
 
 _MAGIC = b"SPRK"
 _CBOR_MAGIC = b"SPCB"
@@ -140,6 +140,9 @@ def _envelope_to_cbor(envelope: Envelope) -> dict[str, Any]:
         "type": _CBOR_ENVELOPE_TYPE,
         "target": _actor_id_to_cbor(envelope.target),
         "payload": _to_cbor_value(envelope.payload, "payload"),
+        "target_incarnation": (
+            None if envelope.target_incarnation is None else _actor_incarnation_to_cbor(envelope.target_incarnation)
+        ),
         "message_id": envelope.message_id,
         "headers": _mapping_to_cbor(envelope.headers, "headers"),
         "sender": None if envelope.sender is None else _actor_id_to_cbor(envelope.sender),
@@ -159,6 +162,11 @@ def _envelope_from_cbor(value: Any) -> Envelope:
         return Envelope(
             target=_actor_id_from_cbor(value["target"]),
             payload=_from_cbor_value(value["payload"], "payload"),
+            target_incarnation=(
+                None
+                if value.get("target_incarnation") is None
+                else _actor_incarnation_from_cbor(value["target_incarnation"])
+            ),
             message_id=_require_str(value.get("message_id"), "message_id"),
             headers=FrozenHeaders(_mapping_from_cbor(value.get("headers"), "headers")),
             sender=None if value.get("sender") is None else _actor_id_from_cbor(value["sender"]),
@@ -245,6 +253,25 @@ def _actor_id_from_cbor(value: Any) -> ActorId:
     return ActorId(
         SyndicateId(uuid=_require_str(value.get("system_uuid"), "system_uuid")),
         actor_id=_require_str(value.get("actor_id"), "actor_id"),
+    )
+
+
+def _actor_incarnation_to_cbor(incarnation: ActorIncarnation) -> dict[str, Any]:
+    return {
+        "actor_id": _actor_id_to_cbor(incarnation.actor_id),
+        "generation": incarnation.generation,
+    }
+
+
+def _actor_incarnation_from_cbor(value: Any) -> ActorIncarnation:
+    if not isinstance(value, Mapping):
+        raise CodecError("CBOR actor incarnation must be a mapping")
+    generation = value.get("generation")
+    if not isinstance(generation, int) or generation < 0:
+        raise CodecError("CBOR actor incarnation generation must be a non-negative integer")
+    return ActorIncarnation(
+        actor_id=_actor_id_from_cbor(value.get("actor_id")),
+        generation=generation,
     )
 
 

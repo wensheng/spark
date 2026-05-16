@@ -55,7 +55,7 @@ def _common_format_status(
 
 
 def format_status(
-    response: SystemStatus | ActorStatus,
+    response: object,
     show_address: Callable[[Any], str] = str,
     tofd: Any = None,
 ) -> None:
@@ -107,11 +107,6 @@ def format_status(
         for a in response.dead_letter_addresses:
             tofd.write(f"    {show_address(a)}\n")
 
-        tofd.write(f"  |Source Authority: {show_address(response.source_authority)}\n")
-        tofd.write(f"  |Loaded Sources [{len(response.loaded_sources)}]:\n")
-        for ls in response.loaded_sources:
-            tofd.write(f'    {ls.source_hash}  "{ls.source_info}"\n')
-
         tofd.write(f"  |Global Actors [{len(response.global_actors)}]:\n")
         for name in sorted(response.global_actors):
             tofd.write(f"    {name}: {show_address(response.global_actors[name])}\n")
@@ -119,8 +114,6 @@ def format_status(
     elif isinstance(response, ActorStatus):
         exit_tag = f" EXITING:{response.exiting}" if response.exiting else ""
         tofd.write(f"Status of {response.actor_class} Actor @ {show_address(response.actor_address)}:{exit_tag}\n")
-        if response.source_hash:
-            tofd.write(f"  |Source Hash: {response.source_hash}\n")
         tofd.write(f"  |Administrator: {show_address(response.admin_address)}\n")
         tofd.write(f"  |Parent  Actor: {show_address(response.parent_address)}\n")
         _common_format_status(tofd, response, "Child", show_address)

@@ -69,16 +69,16 @@ async def test_troupe_worker_execution_modes_process_jobs_in_parallel(execution:
         troupe = await system.create_actor(HybridProbeTroupe, worker_execution=execution)
 
         warmups = await asyncio.gather(
-            *(system.ask(troupe, (0.0, f"warm-{index}"), timeout=10.0) for index in range(3))
+            *(system.ask((0.0, f"warm-{index}"), troupe, timeout=10.0) for index in range(3))
         )
         await asyncio.sleep(0.1)
 
         started_at = perf_counter()
         replies = await asyncio.gather(
-            *(system.ask(troupe, (0.25, f"job-{index}"), timeout=10.0) for index in range(3))
+            *(system.ask((0.25, f"job-{index}"), troupe, timeout=10.0) for index in range(3))
         )
         elapsed = perf_counter() - started_at
-        status = await system.ask(troupe, "troupe:status?", timeout=2.0)
+        status = await system.ask("troupe:status?", troupe, timeout=2.0)
 
     assert sorted(reply[0] for reply in replies) == ["job-0", "job-1", "job-2"]
     assert len({reply[1] for reply in warmups}) == 3
@@ -99,7 +99,7 @@ async def test_system_execution_resolves_to_selected_hybrid_backend() -> None:
         actor = await system.create_actor_from_spec(
             ActorSpec(actor_class=StatelessEchoActor, execution="system", stateless=True)
         )
-        content, pid, thread_id, _address = await system.ask(actor, "hello", timeout=5.0)
+        content, pid, thread_id, _address = await system.ask("hello", actor, timeout=5.0)
 
     assert content == "hello"
     assert pid == os.getpid()
@@ -109,7 +109,7 @@ async def test_system_execution_resolves_to_selected_hybrid_backend() -> None:
         actor = await system.create_actor_from_spec(
             ActorSpec(actor_class=StatelessEchoActor, execution="system", stateless=True)
         )
-        content, pid, _thread_id, _address = await system.ask(actor, "hello", timeout=5.0)
+        content, pid, _thread_id, _address = await system.ask("hello", actor, timeout=5.0)
 
     assert content == "hello"
     assert pid != os.getpid()
@@ -130,7 +130,7 @@ async def test_process_executor_rejects_non_picklable_payload() -> None:
         actor = await system.create_actor_from_spec(
             ActorSpec(actor_class=StatelessEchoActor, execution="process", stateless=True)
         )
-        result = await system.tell(actor, lambda: None)
+        result = await system.tell(lambda: None, actor)
 
         assert result.success is False
         assert "pickl" in (result.reason or "")
@@ -144,7 +144,7 @@ async def test_executor_actors_reject_unsupported_actor_apis(execution: str) -> 
         actor = await system.create_actor_from_spec(
             ActorSpec(actor_class=UnsupportedCreateActor, execution=execution, stateless=True)
         )
-        await system.tell(actor, "go")
+        await system.tell("go", actor)
 
         deadline = asyncio.get_running_loop().time() + 5.0
         while not system.dead_letters and asyncio.get_running_loop().time() < deadline:
@@ -159,7 +159,7 @@ async def test_process_executor_shutdown_terminates_worker_process() -> None:
         actor = await system.create_actor_from_spec(
             ActorSpec(actor_class=StatelessEchoActor, execution="process", stateless=True)
         )
-        _content, pid, _thread_id, _address = await system.ask(actor, "pid", timeout=5.0)
+        _content, pid, _thread_id, _address = await system.ask("pid", actor, timeout=5.0)
 
     assert not _pid_is_running(pid)
 
@@ -168,7 +168,7 @@ async def test_process_executor_shutdown_terminates_worker_process() -> None:
 async def test_process_troupe_requeues_work_when_worker_exits() -> None:
     async with Syndicate("process-troupe-requeue") as system:
         troupe = await system.create_actor(SingleWorkerProbeTroupe, worker_execution="process")
-        pending = asyncio.create_task(system.ask(troupe, (5.0, "slow"), timeout=15.0))
+        pending = asyncio.create_task(system.ask((5.0, "slow"), troupe, timeout=15.0))
 
         child_id = await _wait_for_child(system, troupe)
         await system.stop(ActorAddress(child_id))

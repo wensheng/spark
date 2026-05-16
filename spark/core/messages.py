@@ -37,11 +37,19 @@ class ActorExitRequest(SyndicateMessage):
 
 
 @dataclass(frozen=True, slots=True)
+class CancellationRequest(SyndicateMessage):
+    """Best-effort request to cancel work associated with a correlation id."""
+
+    correlation_id: str
+    reason: str = "request cancelled"
+
+
+@dataclass(frozen=True, slots=True)
 class ActorExited(SyndicateMessage):
     """Notification that an actor has exited.
 
-    This message is sent by the actor system to notify the parent
-    actor when one of its children exits.
+    This message is sent by the actor system to notify monitor watchers when
+    an actor exits.
     """
 
     actor_id: ActorId
@@ -62,6 +70,17 @@ class ChildActorExited(SyndicateMessage):
     child_incarnation: ActorIncarnation | None = None
     exit_code: int = 0
     reason: str = "child actor exited"
+
+
+@dataclass(frozen=True, slots=True)
+class ChildActorRestarted(SyndicateMessage):
+    """Notification that a child actor restarted after failure."""
+
+    child_id: ActorId
+    parent_id: ActorId
+    old_incarnation: ActorIncarnation
+    new_incarnation: ActorIncarnation
+    reason: str = "child actor restarted"
 
 
 @dataclass(frozen=True, slots=True)
@@ -142,14 +161,6 @@ class FederationAttendee:
 
 
 @dataclass(frozen=True, slots=True)
-class LoadedSourceInfo:
-    """One loaded source entry (hash, info-string)."""
-
-    source_hash: str
-    source_info: str
-
-
-@dataclass(frozen=True, slots=True)
 class CommonStatusFields:
     """Fields shared between SystemStatus and ActorStatus."""
 
@@ -189,8 +200,6 @@ class SystemStatus(SyndicateMessage):
     notify_addresses: tuple[str, ...] = ()
     global_actors: dict[str, str] = field(default_factory=dict)
     in_shutdown: bool = False
-    source_authority: str | None = None
-    loaded_sources: tuple[LoadedSourceInfo, ...] = ()
 
 
 # ---------------------------------------------------------------------------
@@ -207,7 +216,6 @@ class ActorStatus(SyndicateMessage):
     admin_address: str
     common: CommonStatusFields = field(default_factory=CommonStatusFields)
     parent_address: str | None = None
-    source_hash: str | None = None
     exiting: str | None = None
 
 
@@ -227,45 +235,6 @@ class DeadLetter(SyndicateMessage):
         """Normalize timestamps supplied as None by compatibility callers."""
         if self.timestamp is None:
             object.__setattr__(self, "timestamp", time.time())
-
-
-# ---------------------------------------------------------------------------
-# Source loading messages
-# ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True, slots=True)
-class ValidateSource(SyndicateMessage):
-    """Request validation of a loaded source by the Source Authority."""
-
-    source_hash: str
-    source_data: bytes
-    source_info: str | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class ValidatedSource(SyndicateMessage):
-    """Response from the Source Authority with validated source data."""
-
-    source_hash: str
-    source_data: bytes | None = None  # None means rejected
-    source_info: str = ""
-
-
-@dataclass(frozen=True, slots=True)
-class LoadedSource(SyndicateMessage):
-    """Notification that a source has been loaded and is available."""
-
-    source_hash: str
-    source_info: str = ""
-
-
-@dataclass(frozen=True, slots=True)
-class UnloadedSource(SyndicateMessage):
-    """Notification that a source has been unloaded."""
-
-    source_hash: str
-    source_info: str = ""
 
 
 @dataclass(frozen=True, slots=True)

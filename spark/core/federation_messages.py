@@ -1,9 +1,4 @@
-"""Federation protocol messages for multi-system federation.
-
-These messages are exchanged between ActorSystems that participate in a
-Federation (federation). All messages are picklable and travel over the
-TCP transport via the Envelope codec.
-"""
+"""Federation protocol messages for multi-system federation."""
 
 from __future__ import annotations
 
@@ -21,9 +16,8 @@ CONV_ADDR_IPV4_CAPABILITY = "Federation Address.IPv4"
 class FederationMessage(SyndicateMessage):
     """Marker base class for all federation protocol messages.
 
-    ``FederationMessage`` instances bypass normal SyndicateId routing in
-    ``_receive_remote_envelope`` and are delivered directly to the
-    ``FederationMembershipProvider``.
+    ``FederationMessage`` instances are reserved for federation membership
+    runtimes and are not part of ordinary actor payload routing.
     """
 
 
@@ -78,21 +72,3 @@ class SyndicateFederationUpdate(FederationMessage):
     remote_admin_address: ActorAddress
     remote_capabilities: dict | None = None
     added: bool = True
-
-
-@dataclass(frozen=True, slots=True)
-class SourceHashTransferRequest(FederationMessage):
-    """Request source data for a hash unknown to this federation member."""
-
-    source_hash: str
-    have_local_authority: bool = False
-
-
-@dataclass(frozen=True, slots=True)
-class SourceHashTransferReply(FederationMessage):
-    """Response to a SourceHashTransferRequest with source data or error."""
-
-    source_hash: str
-    source_data: bytes | None = None
-    source_info: str | None = None
-    original_form: bool = False

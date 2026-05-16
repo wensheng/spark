@@ -55,10 +55,7 @@ class Kernel:
         self.remote_sender: Callable[[Envelope], DeliveryResult] | None = None
         self.federation_handler: Callable[[Envelope], None] | None = None
         self._federation_actor_id: ActorId | None = None
-        self._federation_provider: Any = None  # FederationMembershipProvider, set by ActorSystem
-        self._sources: dict[str, Any] = {}
-        self._source_authority: ActorId | None = None
-        self._source_notifications: list[ActorId] = []
+        self._federation_provider: Any = None
         self._start_time: float = wall_time()
         self._messages_sent: int = 0
         self._send_failures: int = 0
@@ -104,6 +101,7 @@ class Kernel:
             kernel=self,
             actor_id=actor_id,
             address=address,
+            syndicate_address=ActorAddress(ActorId(syndicate_id=self.syndicate_id)),
             parent=parent_address,
         )
 
@@ -489,91 +487,6 @@ class Kernel:
             sel.close()
             self._watch_selector = None
 
-    # ------------------------------------------------------------------
-    # Source management
-    # ------------------------------------------------------------------
-
-    def load_source(self, fname: str) -> str:
-        """Load a source file and return its hash."""
-        import hashlib
-
-        with open(fname, "rb") as f:
-            data = f.read()
-        hval = hashlib.md5(data).hexdigest()
-
-        if self._source_authority is not None:
-            from ..core.messages import ValidateSource
-
-            self._sources[hval] = None  # pending validation
-            self.deliver(
-                Envelope(
-                    target=self._source_authority,
-                    payload=ValidateSource(
-                        source_hash=hval,
-                        source_data=data,
-                        source_info=fname,
-                    ),
-                )
-            )
-        else:
-            # No source authority — accept directly
-            self._sources[hval] = data
-
-        return hval
-
-    def unload_source(self, source_hash: str) -> None:
-        """Unload a previously loaded source."""
-        import sys as _sys
-
-        self._sources.pop(source_hash, None)
-        # Remove any SourceHashFinder from sys.meta_path
-        _sys.meta_path = [f for f in _sys.meta_path if getattr(f, "src_hash", None) != source_hash]
-        # Notify handlers
-        from ..core.messages import UnloadedSource
-
-        for addr in self._source_notifications:
-            self.deliver(
-                Envelope(
-                    target=addr,
-                    payload=UnloadedSource(source_hash=source_hash, source_info=""),
-                )
-            )
-
-    def register_source_authority(self, actor_id: ActorId) -> None:
-        """Register an actor as the Source Authority."""
-        self._source_authority = actor_id
-
-    def notify_on_source_availability(self, actor_id: ActorId, enable: bool) -> None:
-        """Register or unregister for source load/unload notifications."""
-        if enable:
-            if actor_id not in self._source_notifications:
-                self._source_notifications.append(actor_id)
-        else:
-            if actor_id in self._source_notifications:
-                self._source_notifications.remove(actor_id)
-
-    def _handle_validated_source(self, source_hash: str, source_data: bytes | None) -> None:
-        """Handle a validated source response from the Source Authority."""
-        if source_data is not None:
-            self._sources[source_hash] = source_data
-            # Notify handlers
-            from ..core.messages import LoadedSource
-
-            for addr in self._source_notifications:
-                self.deliver(
-                    Envelope(
-                        target=addr,
-                        payload=LoadedSource(source_hash=source_hash, source_info=""),
-                    )
-                )
-        else:
-            # Source rejected
-            self._sources.pop(source_hash, None)
-
-    def get_source(self, source_hash: str) -> Any:
-        """Return the source data for a hash, or None."""
-        return self._sources.get(source_hash)
-
     @property
     def uptime_seconds(self) -> float:
         """Return wall-clock seconds since the kernel started."""
@@ -585,7 +498,6 @@ class Kernel:
         from ..core.messages import (
             CommonStatusFields,
             FederationAttendee,
-            LoadedSourceInfo,
             PendingMessage,
             PendingWakeup,
             SystemStatus,
@@ -672,13 +584,6 @@ class Kernel:
                 # Capabilities
                 capabilities = dict(cp._capabilities)
 
-        # --- Source fields ---
-        source_auth = str(self._source_authority) if self._source_authority else None
-        loaded_srcs: list[LoadedSourceInfo] = []
-        for hval, data in self._sources.items():
-            info = "loaded" if data is not None else "...pending validation..."
-            loaded_srcs.append(LoadedSourceInfo(source_hash=hval, source_info=info))
-
         # --- Dead letters ---
         dead_addrs: list[str] = []
         for dl in self.dead_letters.letters:
@@ -700,8 +605,6 @@ class Kernel:
             notify_addresses=tuple(notify_addrs),
             global_actors={},
             in_shutdown=self._shutdown,
-            source_authority=source_auth,
-            loaded_sources=tuple(loaded_srcs),
         )
 
         if sender_id is not None:
@@ -771,7 +674,6 @@ class Kernel:
             admin_address=admin_addr,
             common=common,
             parent_address=parent_addr,
-            source_hash=None,
             exiting=None,
         )
 
@@ -831,12 +733,6 @@ class Kernel:
         return False
 
     def _handle_envelope(self, actor_id: ActorId, envelope: Envelope) -> None:
-        from ..core.messages import ValidatedSource as ValidatedSourceMsg
-
-        if isinstance(envelope.payload, ValidatedSourceMsg):
-            self._handle_validated_source(envelope.payload.source_hash, envelope.payload.source_data)
-            return
-
         if isinstance(envelope.payload, StatusRequest):
             self._messages_received += 1
             self._handle_actor_status_request(actor_id, envelope.sender)

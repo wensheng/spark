@@ -46,8 +46,10 @@ websocket = [
 cbor2 = [
     "cbor2>=5.9,<6",
 ]
+workflow = []
 
 [project.scripts]
+spark = "spark.cli:main"
 spark-ws-relay = "spark.transport.websocket:main"
 
 [tool.poetry.group.dev.dependencies]

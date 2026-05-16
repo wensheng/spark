@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from ..actor.address import ActorAddress
@@ -20,23 +21,62 @@ class RuntimeActorContext:
     kernel: Kernel
     actor_id: ActorId
     address: ActorAddress
+    syndicate_address: ActorAddress
     parent: ActorAddress | None = None
 
-    def tell(self, target: ActorAddress, message: Any) -> None:
+    def tell(
+        self,
+        message: Any,
+        target: ActorAddress,
+        *,
+        ttl: float | None = None,
+        deadline: datetime | None = None,
+        headers: dict[str, Any] | None = None,
+        trace_id: str | None = None,
+    ) -> None:
         """Send a message from this actor."""
+        if ttl is not None or deadline is not None or headers is not None or trace_id is not None:
+            raise RuntimeError("ttl/deadline/trace sends are only supported by the async runtime")
         self.kernel.tell(target, message, sender=self.actor_id)
 
-    async def tell_async(self, target: ActorAddress, message: Any) -> None:
+    async def tell_async(
+        self,
+        message: Any,
+        target: ActorAddress,
+        *,
+        ttl: float | None = None,
+        deadline: datetime | None = None,
+        headers: dict[str, Any] | None = None,
+        trace_id: str | None = None,
+    ) -> None:
         """Send a message from async actor code."""
-        self.tell(target, message)
+        self.tell(message, target, ttl=ttl, deadline=deadline, headers=headers, trace_id=trace_id)
 
-    def ask(self, target: ActorAddress, message: Any, timeout: float | None = None) -> Any:
+    def ask(
+        self,
+        message: Any,
+        target: ActorAddress,
+        timeout: float | None = None,
+        *,
+        ttl: float | None = None,
+        deadline: datetime | None = None,
+    ) -> Any:
         """Ask another actor and wait for its reply."""
+        if ttl is not None or deadline is not None:
+            raise RuntimeError("ttl/deadline asks are only supported by the async runtime")
         return self.kernel.ask(target, message, timeout=timeout)
 
-    async def ask_async(self, target: ActorAddress, message: Any, timeout: float | None = None) -> Any:
+    async def ask_async(
+        self,
+        message: Any,
+        target: ActorAddress,
+        timeout: float | None = None,
+        *,
+        ttl: float | None = None,
+        deadline: datetime | None = None,
+    ) -> Any:
         """Ask another actor from async actor code."""
-        return self.ask(target, message, timeout=timeout)
+        return self.ask(message, target, timeout=timeout, ttl=ttl, deadline=deadline)
 
     def create_actor(self, actor_class: type[Actor], *args: Any, **kwargs: Any) -> ActorAddress:
         """Create a child actor."""
@@ -47,9 +87,37 @@ class RuntimeActorContext:
             **kwargs,
         )
 
-    def wakeupAfter(self, timeout: float, payload: Any = None) -> None:
+    def wakeupAfter(
+        self,
+        timeout: float,
+        payload: Any = None,
+        *,
+        durable: bool = False,
+        timer_id: str | None = None,
+    ) -> None:
         """Schedule a wakeup for this actor."""
+        if durable or timer_id is not None:
+            raise RuntimeError("durable timers are only supported by the async runtime")
         self.kernel.wakeup_after(self.actor_id, timeout, payload)
+
+    def schedule_after(
+        self,
+        delay: float,
+        payload: Any = None,
+        *,
+        durable: bool = False,
+        timer_id: str | None = None,
+    ) -> None:
+        """Schedule a wakeup for this actor."""
+        self.wakeupAfter(delay, payload, durable=durable, timer_id=timer_id)
+
+    async def persist_event(self, event: Any) -> None:
+        """Persistence is only supported by the async runtime."""
+        raise RuntimeError("persistent actors are only supported by the async runtime")
+
+    async def save_snapshot(self, state: Any, *, sequence: int | None = None) -> None:
+        """Persistence is only supported by the async runtime."""
+        raise RuntimeError("persistent actors are only supported by the async runtime")
 
     def set_watch(
         self,
@@ -59,6 +127,14 @@ class RuntimeActorContext:
     ) -> None:
         """Replace this actor's fd watch list."""
         self.kernel.set_watch(self.actor_id, read=read, write=write)
+
+    async def link(self, target: ActorAddress) -> None:
+        """Linking is only supported by the async runtime."""
+        raise RuntimeError("link is only supported by the async runtime")
+
+    async def monitor(self, target: ActorAddress) -> None:
+        """Monitoring is only supported by the async runtime."""
+        raise RuntimeError("monitor is only supported by the async runtime")
 
     def stop(self) -> None:
         """Stop this actor."""

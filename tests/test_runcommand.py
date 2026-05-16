@@ -42,8 +42,8 @@ async def test_simple_command() -> None:
     async with Syndicate("runcommand-simple") as system:
         runner = await system.create_actor(RunCommand)
         result = await system.ask(
-            runner,
             Command(sys.executable, ["-c", 'print("hello")']),
+            runner,
             timeout=5.0,
         )
 
@@ -71,7 +71,6 @@ async def test_report_on_start_and_output_updates() -> None:
         collector = await system.create_actor(OutputCollector)
 
         await system.tell(
-            runner,
             Command(
                 sys.executable,
                 ["-u", "-c", program],
@@ -79,6 +78,7 @@ async def test_report_on_start_and_output_updates() -> None:
                 output_updates=collector,
                 report_on_start=True,
             ),
+            runner,
         )
 
         started = await system.receive(timeout=5.0)
@@ -90,7 +90,7 @@ async def test_report_on_start_and_output_updates() -> None:
         assert result
         assert result.stdout == f"hello{os.linesep}hello Harry{os.linesep}"
         assert result.stderr == f"done{os.linesep}"
-        assert await system.ask(collector, "get", timeout=1.0) == (result.stdout, result.stderr)
+        assert await system.ask("get", collector, timeout=1.0) == (result.stdout, result.stderr)
 
 
 @pytest.mark.asyncio
@@ -98,8 +98,8 @@ async def test_timeout_terminates_command() -> None:
     async with Syndicate("runcommand-timeout") as system:
         runner = await system.create_actor(RunCommand)
         result = await system.ask(
-            runner,
             Command(sys.executable, ["-c", "import time; time.sleep(10)"], timeout=0.1),
+            runner,
             timeout=5.0,
         )
 
@@ -115,12 +115,12 @@ async def test_abort_running_command_replies_to_abort_requestor() -> None:
     async with Syndicate("runcommand-abort") as system:
         runner = await system.create_actor(RunCommand)
         await system.tell(
-            runner,
             Command(sys.executable, ["-u", "-c", "import time; print('start'); time.sleep(10)"]),
+            runner,
         )
 
         await asyncio.sleep(0.1)
-        result = await system.ask(runner, CommandAbort(), timeout=5.0)
+        result = await system.ask(CommandAbort(), runner, timeout=5.0)
 
         assert isinstance(result, CommandResult)
         assert not result
@@ -133,10 +133,10 @@ async def test_commands_run_fifo() -> None:
     async with Syndicate("runcommand-fifo") as system:
         runner = await system.create_actor(RunCommand)
         await system.tell(
-            runner,
             Command(sys.executable, ["-c", "import time; time.sleep(0.1); print('first')"]),
+            runner,
         )
-        await system.tell(runner, Command(sys.executable, ["-c", "print('second')"]))
+        await system.tell(Command(sys.executable, ["-c", "print('second')"]), runner)
 
         first = await system.receive(timeout=5.0)
         second = await system.receive(timeout=5.0)
@@ -152,8 +152,8 @@ async def test_missing_executable_returns_failure_result() -> None:
     async with Syndicate("runcommand-missing") as system:
         runner = await system.create_actor(RunCommand)
         result = await system.ask(
-            runner,
             Command("definitely-not-a-spark-test-command", []),
+            runner,
             timeout=5.0,
         )
 
